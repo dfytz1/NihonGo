@@ -82,16 +82,116 @@ function formatUsagePayload(payload) {
 
 /** @type {HTMLAudioElement | null} */
 let voicePreviewAudio = null;
+let voicePreviewObjectUrl = /** @type {string | null} */ (null);
 
-function playVoiceSample(url) {
-  if (!url) return;
+async function playJapaneseVoiceSample(voiceId) {
+  if (!voiceId || !getAccessPin()) return;
   try {
     voicePreviewAudio?.pause();
-    voicePreviewAudio = new Audio(url);
-    void voicePreviewAudio.play();
-  } catch {
-    /* ignore */
+    if (voicePreviewObjectUrl) {
+      URL.revokeObjectURL(voicePreviewObjectUrl);
+      voicePreviewObjectUrl = null;
+    }
+    const cfg = readCfg();
+    const model = (
+      document.getElementById("setting-eleven-model")?.value || ""
+    ).trim();
+    const r = await fetch(
+      `${cfg.SUPABASE_URL}/functions/v1/voice_preview_japanese`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${cfg.SUPABASE_ANON_KEY}`,
+          apikey: cfg.SUPABASE_ANON_KEY,
+          "Content-Type": "application/json",
+          Accept: "audio/mpeg",
+        },
+        body: JSON.stringify({
+          access_pin: getAccessPin(),
+          voice_id: voiceId,
+          ...(model ? { elevenlabs_model_id: model } : {}),
+        }),
+      },
+    );
+    if (!r.ok) {
+      let msg = r.statusText;
+      try {
+        const j = await r.json();
+        if (j.error) msg = String(j.error);
+      } catch {
+        const t = await r.text();
+        if (t) msg = t.slice(0, 240);
+      }
+      showToast(msg);
+      return;
+    }
+    const blob = await r.blob();
+    voicePreviewObjectUrl = URL.createObjectURL(blob);
+    voicePreviewAudio = new Audio(voicePreviewObjectUrl);
+    voicePreviewAudio.addEventListener(
+      "ended",
+      () => {
+        if (voicePreviewObjectUrl) {
+          URL.revokeObjectURL(voicePreviewObjectUrl);
+          voicePreviewObjectUrl = null;
+        }
+      },
+      { once: true },
+    );
+    await voicePreviewAudio.play();
+  } catch (e) {
+    showToast(String(e?.message || e));
   }
+}
+
+function appendVoiceSettingRow(host, v, saved) {
+  const id = v.voice_id;
+  const wrap = document.createElement("div");
+  wrap.className = "voice-setting-row row";
+
+  const lab = document.createElement("label");
+  lab.className = "select-wrap";
+  lab.style.flex = "1";
+  lab.style.minWidth = "min(100%, 220px)";
+  const cb = document.createElement("input");
+  cb.type = "checkbox";
+  cb.value = id;
+  cb.checked = saved.has(id);
+  lab.appendChild(cb);
+
+  const nameSpan = document.createElement("span");
+  nameSpan.appendChild(document.createTextNode(` ${v.name || id}`));
+  if (v.good_for_japanese) {
+    const chip = document.createElement("span");
+    chip.className = "tag-chip";
+    chip.style.marginLeft = "0.35rem";
+    chip.textContent = "яп.";
+    chip.title = "Помечено ElevenLabs как подходящее для японского";
+    nameSpan.appendChild(chip);
+  } else if (v.multilingual_eligible) {
+    const chip = document.createElement("span");
+    chip.className = "tag-chip";
+    chip.style.marginLeft = "0.35rem";
+    chip.textContent = "ML";
+    chip.title = "Мультиязычная / v2.5 — обычно можно озвучивать японский";
+    nameSpan.appendChild(chip);
+  }
+  lab.appendChild(nameSpan);
+  wrap.appendChild(lab);
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "btn btn-secondary";
+  btn.textContent = "▶";
+  btn.title = "Японский образец (как в озвучке)";
+  btn.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    void playJapaneseVoiceSample(id);
+  });
+  wrap.appendChild(btn);
+
+  host.appendChild(wrap);
 }
 
 async function loadVoicesIntoSettings() {
@@ -111,42 +211,28 @@ async function loadVoicesIntoSettings() {
     setVoiceCatalog(voices);
     const saved = new Set(getSelectedVoiceIds());
     host.innerHTML = "";
+    let lastTier = -1;
+    let sectionIndex = 0;
     for (const v of voices) {
-      const id = v.voice_id;
-      const wrap = document.createElement("div");
-      wrap.className = "voice-setting-row row";
-
-      const lab = document.createElement("label");
-      lab.className = "select-wrap";
-      lab.style.flex = "1";
-      lab.style.minWidth = "min(100%, 220px)";
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.value = id;
-      cb.checked = saved.has(id);
-      lab.appendChild(cb);
-      const span = document.createElement("span");
-      span.textContent = ` ${v.name || id}`;
-      lab.appendChild(span);
-      wrap.appendChild(lab);
-
-      const previewUrl =
-        typeof v.preview_url === "string" ? v.preview_url.trim() : "";
-      if (previewUrl) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "btn btn-secondary";
-        btn.textContent = "▶";
-        btn.title = "Образец голоса";
-        btn.addEventListener("click", (ev) => {
-          ev.preventDefault();
-          ev.stopPropagation();
-          playVoiceSample(previewUrl);
-        });
-        wrap.appendChild(btn);
+      const tier = v.good_for_japanese
+        ? 0
+        : v.multilingual_eligible
+          ? 1
+          : 2;
+      if (tier !== lastTier) {
+        lastTier = tier;
+        const h = document.createElement("p");
+        h.className = "label";
+        h.style.marginTop = sectionIndex++ === 0 ? "0" : "0.85rem";
+        h.textContent =
+          tier === 0
+            ? "Рекомендуемы для японского"
+            : tier === 1
+              ? "Мультиязычные (часто подходят для японского)"
+              : "Остальные голоса";
+        host.appendChild(h);
       }
-
-      host.appendChild(wrap);
+      appendVoiceSettingRow(host, v, saved);
     }
     if (st) {
       st.textContent = voices.length

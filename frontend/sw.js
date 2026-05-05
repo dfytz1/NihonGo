@@ -1,7 +1,7 @@
 /**
  * Offline shell + audio cache. JS uses network-first so new deploys don’t stick on stale app logic.
  */
-const CACHE_SHELL = "nihon-shell-v6";
+const CACHE_SHELL = "nihon-shell-v7";
 const CACHE_AUDIO = "nihon-audio-v1";
 const SHELL = ["./", "./index.html", "./css/styles.css", "./manifest.json"];
 

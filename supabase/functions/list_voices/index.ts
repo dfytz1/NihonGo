@@ -1,7 +1,20 @@
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { requireAccessPin } from "../_shared/pin.ts";
+import {
+  hasMultilingualFamilyModel,
+  isRecommendedForJapanese,
+} from "./japanese_rank.ts";
 
 const MAX_VOICES = 120;
+
+type VoiceOut = {
+  voice_id: string;
+  name: string;
+  /** Verified Japanese / explicit JP metadata from ElevenLabs. */
+  good_for_japanese: boolean;
+  /** Multilingual or v2.5–family HQ model IDs — usually works with eleven_multilingual_* for JP. */
+  multilingual_eligible: boolean;
+};
 
 /** Lists ElevenLabs voices for checkbox UI (PIN-gated). */
 Deno.serve(async (req) => {
@@ -38,26 +51,39 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: `ElevenLabs ${r.status}`, detail: t }, 502);
   }
 
-  let body: {
-    voices?: Array<{ voice_id?: string; name?: string; preview_url?: string }>;
-  };
+  let body: { voices?: Record<string, unknown>[] };
   try {
     body = await r.json() as typeof body;
   } catch {
     return jsonResponse({ error: "Bad voices JSON" }, 502);
   }
 
-  const voices = (body.voices ?? [])
-    .map((v) => {
-      const pu = typeof v.preview_url === "string" ? v.preview_url.trim() : "";
-      return {
-        voice_id: String(v.voice_id ?? ""),
-        name: String(v.name ?? v.voice_id ?? ""),
-        preview_url: pu,
-      };
-    })
-    .filter((v) => v.voice_id)
-    .slice(0, MAX_VOICES);
+  const rawVoices = body.voices ?? [];
+  const voices: VoiceOut[] = [];
 
-  return jsonResponse({ voices });
+  for (const rv of rawVoices) {
+    const voice_id = String(rv.voice_id ?? "");
+    if (!voice_id) continue;
+    const name = String(rv.name ?? voice_id);
+    const good = isRecommendedForJapanese(rv);
+    const mult = hasMultilingualFamilyModel(rv);
+    voices.push({
+      voice_id,
+      name,
+      good_for_japanese: good,
+      multilingual_eligible: mult,
+    });
+  }
+
+  voices.sort((a, b) => {
+    if (a.good_for_japanese !== b.good_for_japanese) {
+      return a.good_for_japanese ? -1 : 1;
+    }
+    if (a.multilingual_eligible !== b.multilingual_eligible) {
+      return a.multilingual_eligible ? -1 : 1;
+    }
+    return a.name.localeCompare(b.name, "ru");
+  });
+
+  return jsonResponse({ voices: voices.slice(0, MAX_VOICES) });
 });

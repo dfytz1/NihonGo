@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.list_voices]
 verify_jwt = false
+
+[functions.voice_preview_japanese]
+verify_jwt = false
