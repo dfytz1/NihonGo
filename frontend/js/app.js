@@ -157,9 +157,8 @@ async function main() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${c.SUPABASE_ANON_KEY}`,
           apikey: c.SUPABASE_ANON_KEY,
-          "X-Access-Pin": pin,
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ access_pin: pin }),
       });
       const payload = await r.json().catch(() => ({}));
       if (!r.ok) {

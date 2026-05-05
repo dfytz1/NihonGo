@@ -26,15 +26,17 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Method not allowed" }, 405);
   }
 
-  const denied = requireAccessPin(req);
-  if (denied) return denied;
-
-  let body: Body;
+  let raw: Record<string, unknown>;
   try {
-    body = await req.json();
+    raw = (await req.json()) as Record<string, unknown>;
   } catch {
     return jsonResponse({ error: "Invalid JSON" }, 400);
   }
+
+  const denied = requireAccessPin(req, raw);
+  if (denied) return denied;
+
+  const body = raw as unknown as Body;
 
   const sentenceId = (body.sentence_id ?? "").trim();
   if (!sentenceId) {

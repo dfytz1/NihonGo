@@ -180,23 +180,34 @@ export async function edgeFetch(fnName, body) {
   const pin = getAccessPin();
   if (!pin) throw new Error("Нет PIN — войдите");
   const c = readCfg();
-  const res = await fetch(`${c.SUPABASE_URL}/functions/v1/${fnName}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${c.SUPABASE_ANON_KEY}`,
-      apikey: c.SUPABASE_ANON_KEY,
-      "Content-Type": "application/json",
-      "X-Access-Pin": pin,
-    },
-    body: JSON.stringify(body),
-  });
-  let payload = {};
+  const payload = { ...(body ?? {}), access_pin: pin };
+  let res;
   try {
-    payload = await res.json();
+    res = await fetch(`${c.SUPABASE_URL}/functions/v1/${fnName}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${c.SUPABASE_ANON_KEY}`,
+        apikey: c.SUPABASE_ANON_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/failed to fetch|load failed|networkerror/i.test(msg)) {
+      throw new Error(
+        "Сеть: запрос к Edge Function не прошёл (часто CORS или блокировка). Обновите страницу и проверьте SUPABASE_URL в конфиге.",
+      );
+    }
+    throw e;
+  }
+  let out = {};
+  try {
+    out = await res.json();
   } catch {
     /* ignore */
   }
-  return { res, payload };
+  return { res, payload: out };
 }
 
 export async function getAudioUrl(path) {
