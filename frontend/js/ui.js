@@ -241,6 +241,27 @@ export async function delSentence(id) {
   }
 }
 
+function edgeErrorMessage(payload, res) {
+  const e = payload?.error;
+  if (typeof e === "string" && e.trim()) return e.trim();
+  if (payload?.message && typeof payload.message === "string") {
+    return payload.message;
+  }
+  const hint = payload?.hint;
+  if (typeof hint === "string" && hint) {
+    const base = typeof e === "string" ? e : res.statusText;
+    return `${base} (${hint})`;
+  }
+  if (e && typeof e === "object") {
+    try {
+      return JSON.stringify(e);
+    } catch {
+      return res.statusText;
+    }
+  }
+  return res.statusText || "Ошибка сервера";
+}
+
 export async function invokeRegen(id) {
   const voice = getVoiceId();
   const body = {
@@ -249,7 +270,7 @@ export async function invokeRegen(id) {
   };
   if (voice) body.voice_id = voice;
   const { res, payload } = await edgeFetch("regenerate_audio", body);
-  if (!res.ok) throw new Error(payload.error || res.statusText);
+  if (!res.ok) throw new Error(edgeErrorMessage(payload, res));
   return payload;
 }
 

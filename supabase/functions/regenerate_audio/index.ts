@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
 
   const elevenModel = (body.elevenlabs_model_id ?? "").trim() || undefined;
 
-  await admin
+  const { error: stErr } = await admin
     .from("sentences")
     .update({
       status: "generating_audio",
@@ -75,9 +75,14 @@ Deno.serve(async (req) => {
     })
     .eq("id", sentenceId);
 
+  if (stErr) {
+    return jsonResponse({ error: stErr.message, hint: "status_update" }, 500);
+  }
+
+  let path = "";
   try {
     const mp3 = await synthesizeJapaneseMp3(jp, voiceId, elevenModel);
-    const path = newClipStoragePath(sentenceId);
+    path = newClipStoragePath(sentenceId);
     const track: AudioTrackRow = {
       path,
       voice_id: voiceId,
@@ -104,14 +109,33 @@ Deno.serve(async (req) => {
         .select()
         .eq("id", sentenceId)
         .single();
-      return jsonResponse({ sentence: final, error: "Storage failed" }, 500);
+      return jsonResponse({ sentence: final, error: upErr.message }, 500);
     }
 
-    const existing = existingTracksFromRow(row as Record<string, unknown>);
+    const { data: fresh, error: freshErr } = await admin
+      .from("sentences")
+      .select("audio_tracks,audio_path,tts_voice_id")
+      .eq("id", sentenceId)
+      .single();
+
+    if (freshErr || !fresh) {
+      await admin.storage.from(BUCKET).remove([path]);
+      const msg = freshErr?.message ?? "Could not reload row (audio_tracks merge)";
+      await admin
+        .from("sentences")
+        .update({
+          status: "failed_storage",
+          error_message: msg,
+        })
+        .eq("id", sentenceId);
+      return jsonResponse({ error: msg, hint: "refetch_after_upload" }, 500);
+    }
+
+    const existing = existingTracksFromRow(fresh as Record<string, unknown>);
     const tracks = appendTrack(existing, track);
     const lastPath = tracks[tracks.length - 1]!.path;
 
-    await admin
+    const { error: dbErr } = await admin
       .from("sentences")
       .update({
         audio_path: lastPath,
@@ -120,6 +144,27 @@ Deno.serve(async (req) => {
         error_message: null,
       })
       .eq("id", sentenceId);
+
+    if (dbErr) {
+      await admin.storage.from(BUCKET).remove([path]);
+      await admin
+        .from("sentences")
+        .update({
+          status: "failed_storage",
+          error_message: dbErr.message,
+        })
+        .eq("id", sentenceId);
+      const { data: final } = await admin
+        .from("sentences")
+        .select()
+        .eq("id", sentenceId)
+        .single();
+      return jsonResponse({
+        sentence: final,
+        error: dbErr.message,
+        hint: "Run latest DB migration if column audio_tracks is missing",
+      }, 500);
+    }
 
     const { data: final } = await admin
       .from("sentences")
@@ -130,6 +175,9 @@ Deno.serve(async (req) => {
     return jsonResponse({ sentence: final });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
+    if (path) {
+      await admin.storage.from(BUCKET).remove([path]).catch(() => {});
+    }
     await admin
       .from("sentences")
       .update({

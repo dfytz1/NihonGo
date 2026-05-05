@@ -1,5 +1,25 @@
 // ElevenLabs text-to-speech — API key from Edge Function secrets only (ELEVENLABS_API_KEY).
 
+/** Per-call jitter so re-generating the same line does not sound identical (new file + varied prosody). */
+function voiceSettingsForModel(modelId: string) {
+  const id = modelId.toLowerCase();
+  // eleven_v3 uses a different tuning surface in some accounts; keep a safe minimum.
+  if (id.includes("v3")) {
+    return {
+      stability: 0.38 + Math.random() * 0.24,
+      similarity_boost: 0.72 + Math.random() * 0.2,
+      style: 0.15 + Math.random() * 0.45,
+      use_speaker_boost: true,
+    };
+  }
+  return {
+    stability: 0.28 + Math.random() * 0.35,
+    similarity_boost: 0.62 + Math.random() * 0.28,
+    style: Math.random() * 0.35,
+    use_speaker_boost: true,
+  };
+}
+
 export async function synthesizeJapaneseMp3(
   text: string,
   voiceId: string,
@@ -14,6 +34,12 @@ export async function synthesizeJapaneseMp3(
     Deno.env.get("ELEVENLABS_MODEL_ID")?.trim() ||
     "eleven_multilingual_v2";
 
+  const body = {
+    text,
+    model_id: modelId,
+    voice_settings: voiceSettingsForModel(modelId),
+  };
+
   const res = await fetch(
     `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
     {
@@ -23,10 +49,7 @@ export async function synthesizeJapaneseMp3(
         Accept: "audio/mpeg",
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        text,
-        model_id: modelId,
-      }),
+      body: JSON.stringify(body),
     },
   );
 
