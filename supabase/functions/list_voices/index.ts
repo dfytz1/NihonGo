@@ -38,7 +38,9 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: `ElevenLabs ${r.status}`, detail: t }, 502);
   }
 
-  let body: { voices?: Array<{ voice_id?: string; name?: string }> };
+  let body: {
+    voices?: Array<{ voice_id?: string; name?: string; preview_url?: string }>;
+  };
   try {
     body = await r.json() as typeof body;
   } catch {
@@ -46,10 +48,14 @@ Deno.serve(async (req) => {
   }
 
   const voices = (body.voices ?? [])
-    .map((v) => ({
-      voice_id: String(v.voice_id ?? ""),
-      name: String(v.name ?? v.voice_id ?? ""),
-    }))
+    .map((v) => {
+      const pu = typeof v.preview_url === "string" ? v.preview_url.trim() : "";
+      return {
+        voice_id: String(v.voice_id ?? ""),
+        name: String(v.name ?? v.voice_id ?? ""),
+        preview_url: pu,
+      };
+    })
     .filter((v) => v.voice_id)
     .slice(0, MAX_VOICES);
 

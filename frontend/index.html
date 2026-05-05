@@ -129,15 +129,16 @@
         </div>
         <div class="controls-grid">
           <div>
-            <label for="pl-mode">Режим</label>
-            <select id="pl-mode" class="input">
-              <option value="japanese_only">Только японский</option>
-              <option value="japanese_silence">Японский + пауза</option>
-              <option value="japanese_russian">Японский → русский на экране</option>
+            <label for="pl-speed">Скорость</label>
+            <select id="pl-speed" class="input">
+              <option value="0.75">0.75×</option>
+              <option value="1" selected>1×</option>
+              <option value="1.15">1.15×</option>
+              <option value="1.3">1.3×</option>
             </select>
           </div>
           <div>
-            <label for="pl-pause">Пауза между фразами</label>
+            <label for="pl-pause">Пауза после фразы</label>
             <select id="pl-pause" class="input">
               <option value="0">0 с</option>
               <option value="1000">1 с</option>
@@ -147,29 +148,11 @@
             </select>
           </div>
           <div>
-            <label for="pl-silence">Доп. тишина после японского</label>
-            <select id="pl-silence" class="input">
-              <option value="0">Нет</option>
-              <option value="800">0.8 с</option>
-              <option value="1500" selected>1.5 с</option>
-              <option value="3000">3 с</option>
-            </select>
-          </div>
-          <div>
-            <label for="pl-repeat">Повторов каждой фразы</label>
+            <label for="pl-repeat">Повторов подряд</label>
             <select id="pl-repeat" class="input">
               <option value="1" selected>1×</option>
               <option value="2">2×</option>
               <option value="3">3×</option>
-            </select>
-          </div>
-          <div>
-            <label for="pl-speed">Скорость</label>
-            <select id="pl-speed" class="input">
-              <option value="0.75">0.75×</option>
-              <option value="1" selected>1×</option>
-              <option value="1.15">1.15×</option>
-              <option value="1.3">1.3×</option>
             </select>
           </div>
         </div>
@@ -222,7 +205,6 @@
     </div>
 
     <div id="modal-root"></div>
-    <div id="russian-overlay" class="russian-overlay hidden"></div>
     <div id="toast" class="toast hidden" role="status"></div>
 
     <script src="js/config.js"></script>

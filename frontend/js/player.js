@@ -18,26 +18,54 @@ function wireAudio() {
   }
 }
 
+function applyPlaybackRate(el, playbackRate) {
+  const rate = Number(playbackRate);
+  const r = Number.isFinite(rate) && rate > 0 ? rate : 1;
+  try {
+    el.playbackRate = r;
+    if ("preservesPitch" in el) {
+      /** @type {HTMLAudioElement & { preservesPitch?: boolean }} */ (el)
+        .preservesPitch = true;
+    }
+  } catch {
+    /* Safari may throw for extreme values */
+  }
+}
+
 export function playClip(url, playbackRate) {
   wireAudio();
   return new Promise((resolve) => {
     skipClipResolve = resolve;
     const a = audioEl;
-    a.playbackRate = playbackRate;
+    const rate = Number(playbackRate) || 1;
+
+    const finish = () => {
+      skipClipResolve = null;
+      resolve();
+    };
+
+    a.onended = finish;
+    a.onerror = finish;
+
+    a.pause();
     a.src = url;
-    a.onended = () => {
-      skipClipResolve = null;
-      resolve();
-    };
-    a.onerror = () => {
-      skipClipResolve = null;
-      resolve();
-    };
-    a.play().catch(() => {
-      skipClipResolve = null;
-      resolve();
-    });
+
+    a.addEventListener(
+      "loadedmetadata",
+      () => {
+        applyPlaybackRate(a, rate);
+        a.play().catch(finish);
+      },
+      { once: true },
+    );
   });
+}
+
+/** While a clip is playing, apply speed from the «Скорость» control. */
+export function syncPlaybackRateFromUi() {
+  if (!audioEl || audioEl.paused || audioEl.ended) return;
+  const sp = Number(document.getElementById("pl-speed")?.value || 1);
+  applyPlaybackRate(audioEl, sp);
 }
 
 export function skipCurrentClip() {
@@ -79,15 +107,6 @@ function highlightPlaying(id) {
 
 export async function runPlayerLoop() {
   const stEl = document.getElementById("player-status");
-  const repeat = Number(document.getElementById("pl-repeat")?.value || 1);
-  const pauseBetween = Number(document.getElementById("pl-pause")?.value || 0);
-  const silenceAfter = Number(
-    document.getElementById("pl-silence")?.value || 0,
-  );
-  const mode = document.getElementById("pl-mode")?.value || "japanese_only";
-  const shuffleEl = document.getElementById("pl-shuffle");
-  const repeatAll = document.getElementById("pl-repeat-all")?.checked;
-  const speed = Number(document.getElementById("pl-speed")?.value || 1);
 
   const base = playable(filteredSentences());
   if (!base.length) {
@@ -100,7 +119,7 @@ export async function runPlayerLoop() {
   }
 
   let queue = [...base];
-  if (shuffleEl?.checked) {
+  if (document.getElementById("pl-shuffle")?.checked) {
     queue.sort(() => Math.random() - 0.5);
   }
   player.queue = queue;
@@ -108,6 +127,9 @@ export async function runPlayerLoop() {
   player.running = true;
 
   while (player.running) {
+    const shuffleEl = document.getElementById("pl-shuffle");
+    const repeatAll = document.getElementById("pl-repeat-all")?.checked;
+
     if (player.index < 0) player.index = 0;
     if (player.index >= player.queue.length) {
       if (!repeatAll) {
@@ -123,6 +145,8 @@ export async function runPlayerLoop() {
     }
 
     const s = player.queue[player.index];
+    const repeat = Number(document.getElementById("pl-repeat")?.value || 1);
+
     highlightPlaying(s.id);
     const npj = document.getElementById("np-jp");
     const npk = document.getElementById("np-kana");
@@ -141,6 +165,7 @@ export async function runPlayerLoop() {
       const url = path ? await getAudioUrl(path) : null;
       if (!url) break;
 
+      const speed = Number(document.getElementById("pl-speed")?.value || 1);
       if (stEl) {
         stEl.textContent =
           repeat > 1
@@ -150,20 +175,6 @@ export async function runPlayerLoop() {
       await playClip(url, speed);
       if (!player.running) break;
       if (player.seekDelta !== 0) break;
-
-      if (mode === "japanese_silence" && silenceAfter > 0) {
-        await sleep(silenceAfter);
-      }
-
-      if (mode === "japanese_russian") {
-        const ov = document.getElementById("russian-overlay");
-        if (ov) {
-          ov.textContent = s.russian_text || "";
-          ov.classList.remove("hidden");
-        }
-        await sleep(Math.max(silenceAfter, 1800));
-        document.getElementById("russian-overlay")?.classList.add("hidden");
-      }
     }
 
     if (!player.running) break;
@@ -175,6 +186,9 @@ export async function runPlayerLoop() {
       player.index++;
     }
 
+    const pauseBetween = Number(
+      document.getElementById("pl-pause")?.value || 0,
+    );
     await sleep(pauseBetween);
   }
 

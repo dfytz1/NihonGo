@@ -15,6 +15,7 @@ import {
   playerPrev,
   startPlayer,
   stopPlayer,
+  syncPlaybackRateFromUi,
 } from "./player.js";
 import {
   initTheme,
@@ -79,6 +80,20 @@ function formatUsagePayload(payload) {
   return lines.join("\n") || "Нет данных";
 }
 
+/** @type {HTMLAudioElement | null} */
+let voicePreviewAudio = null;
+
+function playVoiceSample(url) {
+  if (!url) return;
+  try {
+    voicePreviewAudio?.pause();
+    voicePreviewAudio = new Audio(url);
+    void voicePreviewAudio.play();
+  } catch {
+    /* ignore */
+  }
+}
+
 async function loadVoicesIntoSettings() {
   const host = document.getElementById("voice-checkboxes");
   const st = document.getElementById("voice-load-status");
@@ -98,17 +113,40 @@ async function loadVoicesIntoSettings() {
     host.innerHTML = "";
     for (const v of voices) {
       const id = v.voice_id;
-      const row = document.createElement("label");
-      row.className = "select-wrap";
+      const wrap = document.createElement("div");
+      wrap.className = "voice-setting-row row";
+
+      const lab = document.createElement("label");
+      lab.className = "select-wrap";
+      lab.style.flex = "1";
+      lab.style.minWidth = "min(100%, 220px)";
       const cb = document.createElement("input");
       cb.type = "checkbox";
       cb.value = id;
       cb.checked = saved.has(id);
-      row.appendChild(cb);
+      lab.appendChild(cb);
       const span = document.createElement("span");
       span.textContent = ` ${v.name || id}`;
-      row.appendChild(span);
-      host.appendChild(row);
+      lab.appendChild(span);
+      wrap.appendChild(lab);
+
+      const previewUrl =
+        typeof v.preview_url === "string" ? v.preview_url.trim() : "";
+      if (previewUrl) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn btn-secondary";
+        btn.textContent = "▶";
+        btn.title = "Образец голоса";
+        btn.addEventListener("click", (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          playVoiceSample(previewUrl);
+        });
+        wrap.appendChild(btn);
+      }
+
+      host.appendChild(wrap);
     }
     if (st) {
       st.textContent = voices.length
@@ -313,17 +351,23 @@ async function main() {
 
   const prefs = loadPlayerPrefs();
   const pmap = {
-    "pl-mode": "mode",
     "pl-pause": "pause",
-    "pl-silence": "silence",
     "pl-repeat": "repeat",
-    "pl-speed": "speed",
   };
   Object.entries(pmap).forEach(([id, key]) => {
     const el = document.getElementById(id);
     if (el && prefs[key] != null) el.value = String(prefs[key]);
     el?.addEventListener("change", () => {
       savePlayerPrefs({ [key]: el.value });
+    });
+  });
+  const plSpeed = document.getElementById("pl-speed");
+  if (plSpeed && prefs.speed != null) plSpeed.value = String(prefs.speed);
+  plSpeed?.addEventListener("input", () => syncPlaybackRateFromUi());
+  plSpeed?.addEventListener("change", () => {
+    syncPlaybackRateFromUi();
+    savePlayerPrefs({
+      speed: /** @type {HTMLSelectElement} */ (plSpeed).value,
     });
   });
   if (typeof prefs.shuffle === "boolean") {

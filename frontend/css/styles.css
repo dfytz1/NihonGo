@@ -399,7 +399,7 @@ textarea.quick-russian {
 
 .player-panel .controls-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
   gap: 0.65rem;
   margin-bottom: 1rem;
 }
@@ -424,20 +424,10 @@ textarea.quick-russian {
   font-weight: 600;
 }
 
-.russian-overlay {
-  position: fixed;
-  bottom: 5.5rem;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: 90vw;
-  background: var(--surface);
-  border: 1px solid var(--accent);
-  padding: 1rem 1.25rem;
-  border-radius: var(--radius);
-  z-index: 60;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.15);
-  font-size: 1.05rem;
-  text-align: center;
+.voice-setting-row {
+  flex: 1 1 100%;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .toast {
