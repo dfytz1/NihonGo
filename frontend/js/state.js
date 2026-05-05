@@ -2,8 +2,8 @@
 export const LS_VOICE = "nihongo_voice_id";
 export const LS_THEME = "nihongo_theme";
 export const LS_PLAYER = "nihongo_player";
-/** sessionStorage — cleared when the tab/session ends */
-export const SESSION_ACCESS_PIN = "nihon_access_pin";
+/** PIN — localStorage; cleared only via «Выйти» */
+export const LS_ACCESS_PIN = "nihon_access_pin";
 
 /** @type {import('@supabase/supabase-js').SupabaseClient | null} */
 export let supabase = null;

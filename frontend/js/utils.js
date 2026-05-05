@@ -2,7 +2,7 @@ import {
   LS_VOICE,
   LS_PLAYER,
   LS_THEME,
-  SESSION_ACCESS_PIN,
+  LS_ACCESS_PIN,
   getToastTimer,
   setToastTimer,
   supabase,
@@ -27,23 +27,36 @@ export function getVoiceId() {
 }
 
 export function getAccessPin() {
-  return (
-    (typeof sessionStorage !== "undefined" &&
-      sessionStorage.getItem(SESSION_ACCESS_PIN)) ||
-    ""
-  ).trim();
+  if (typeof localStorage === "undefined") return "";
+  let p = (localStorage.getItem(LS_ACCESS_PIN) || "").trim();
+  if (p) return p;
+  if (typeof sessionStorage !== "undefined") {
+    const legacy = (sessionStorage.getItem(LS_ACCESS_PIN) || "").trim();
+    if (legacy) {
+      localStorage.setItem(LS_ACCESS_PIN, legacy);
+      sessionStorage.removeItem(LS_ACCESS_PIN);
+      return legacy;
+    }
+  }
+  return "";
 }
 
 export function setAccessPin(pin) {
   const p = String(pin ?? "").trim();
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem(LS_ACCESS_PIN, p);
+  }
   if (typeof sessionStorage !== "undefined") {
-    sessionStorage.setItem(SESSION_ACCESS_PIN, p);
+    sessionStorage.removeItem(LS_ACCESS_PIN);
   }
 }
 
 export function clearAccessPin() {
+  if (typeof localStorage !== "undefined") {
+    localStorage.removeItem(LS_ACCESS_PIN);
+  }
   if (typeof sessionStorage !== "undefined") {
-    sessionStorage.removeItem(SESSION_ACCESS_PIN);
+    sessionStorage.removeItem(LS_ACCESS_PIN);
   }
 }
 

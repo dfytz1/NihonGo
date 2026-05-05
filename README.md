@@ -79,7 +79,7 @@ The shared helper `supabase/functions/_shared/auth.ts` reads the admin client fr
 
 1. Set Edge secret **`ACCESS_PIN`** (and translation/TTS keys as above).
 2. Deploy **`verify_pin`** with JWT verification off (see `config.toml`).
-3. The app calls **`verify_pin`** once; if the PIN matches, it stores the PIN in **sessionStorage** and sends **`X-Access-Pin`** on every Edge request (`add_sentence`, `regenerate_audio`, `batch_regenerate_audio`).
+3. The app calls **`verify_pin`** once; if the PIN matches, it stores the PIN in **localStorage** (until you sign out) and sends **`X-Access-Pin`** on every Edge request (`add_sentence`, `regenerate_audio`, `batch_regenerate_audio`).
 
 There is **no** `INTERNAL_AUTH_*` or password grant. Rotating `ACCESS_PIN` invalidates unlock until you enter the new PIN.
 
