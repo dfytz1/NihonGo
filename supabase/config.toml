@@ -1,0 +1,13 @@
+# https://supabase.com/docs/guides/cli/config
+
+[api]
+enabled = true
+
+[functions.add_sentence]
+verify_jwt = true
+
+[functions.regenerate_audio]
+verify_jwt = true
+
+[functions.batch_regenerate_audio]
+verify_jwt = true

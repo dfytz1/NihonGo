@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "Vercel runs `npm run build` to generate js/config.js from env vars.",
+  "scripts": {
+    "build": "node vercel-build.js"
+  }
+}

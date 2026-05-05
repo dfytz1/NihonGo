@@ -1,0 +1,11 @@
+.env
+.env.local
+.DS_Store
+node_modules
+.vercel
+
+# Local Supabase client config (use config.example.js + Vercel env for deploy)
+frontend/js/config.js
+
+# Supabase CLI local state
+supabase/.temp/
