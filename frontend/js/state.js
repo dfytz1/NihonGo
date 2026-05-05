@@ -1,5 +1,7 @@
 /** Shared UI state */
 export const LS_VOICE = "nihongo_voice_id";
+/** JSON string[] of ElevenLabs voice IDs (checkbox selection). */
+export const LS_VOICE_IDS = "nihongo_voice_ids";
 export const LS_THEME = "nihongo_theme";
 export const LS_PLAYER = "nihongo_player";
 /** PIN — localStorage; cleared only via «Выйти» */

@@ -6,10 +6,6 @@ export function filteredSentences() {
   const tag = document.getElementById("filter-tag")?.value || "";
   const fav = document.getElementById("filter-fav")?.value || "all";
   const sort = document.getElementById("sort-order")?.value || "newest";
-  const todayOnly = document.getElementById("filter-today")?.checked;
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
 
   let list = [...sentences];
 
@@ -30,14 +26,6 @@ export function filteredSentences() {
   if (tag) list = list.filter((s) => (s.tags || []).includes(tag));
 
   if (fav === "fav") list = list.filter((s) => s.favorite);
-
-  if (todayOnly) {
-    list = list.filter((s) => {
-      const d = new Date(s.created_at);
-      d.setHours(0, 0, 0, 0);
-      return d.getTime() === today.getTime();
-    });
-  }
 
   list.sort((a, b) => {
     const ta = new Date(a.created_at).getTime();

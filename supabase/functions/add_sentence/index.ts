@@ -2,7 +2,9 @@ import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { requireAccessPin } from "../_shared/pin.ts";
 import { serviceClient } from "../_shared/auth.ts";
 import { translateRussianToJapanese } from "../_shared/translate.ts";
+import { textForTts } from "../_shared/tts_text.ts";
 import { synthesizeJapaneseMp3 } from "../_shared/tts.ts";
+import { pickTtsVoiceId } from "../_shared/voice_pick.ts";
 import {
   appendTrack,
   newClipStoragePath,
@@ -13,6 +15,7 @@ type AddBody = {
   russian_text: string;
   tags?: string[];
   voice_id?: string;
+  voice_ids?: string[];
   openai_model?: string;
   elevenlabs_model_id?: string;
   /** If false (default), returns 409 when the same Russian text already exists. */
@@ -52,13 +55,6 @@ Deno.serve(async (req) => {
     : [];
 
   const defaultVoice = Deno.env.get("ELEVENLABS_VOICE_ID") ?? "";
-  const voiceId = (body.voice_id ?? defaultVoice).trim();
-  if (!voiceId) {
-    return jsonResponse({
-      error: "No voice_id: set ELEVENLABS_VOICE_ID secret or pass voice_id",
-    }, 400);
-  }
-
   const elevenModel = (body.elevenlabs_model_id ?? "").trim() || undefined;
   const openaiModel = (body.openai_model ?? "").trim() || undefined;
 
@@ -86,7 +82,7 @@ Deno.serve(async (req) => {
       russian_text: russian,
       tags,
       status: "translating",
-      tts_voice_id: voiceId,
+      tts_voice_id: null,
     })
     .select()
     .single();
@@ -118,7 +114,18 @@ Deno.serve(async (req) => {
     if (trErr) throw new Error(trErr.message);
 
     try {
-      const mp3 = await synthesizeJapaneseMp3(japanese, voiceId, elevenModel);
+      const voiceId = pickTtsVoiceId({
+        voice_id: body.voice_id,
+        voice_ids: body.voice_ids,
+        envDefault: defaultVoice,
+      });
+      if (!voiceId) {
+        throw new Error(
+          "No voice: set ELEVENLABS_VOICE_ID or choose voices in settings",
+        );
+      }
+      const ttsLine = textForTts(japanese, kana);
+      const mp3 = await synthesizeJapaneseMp3(ttsLine, voiceId, elevenModel);
       const path = newClipStoragePath(sentenceId);
       const track: AudioTrackRow = {
         path,
@@ -163,6 +170,7 @@ Deno.serve(async (req) => {
         .update({
           audio_path: path,
           audio_tracks: tracks,
+          tts_voice_id: voiceId,
           status: "ready",
           error_message: null,
         })

@@ -1,5 +1,6 @@
 import { filteredSentences } from "./filters.js";
 import {
+  playClip,
   playSingle,
 } from "./player.js";
 import {
@@ -10,10 +11,16 @@ import {
   supabase,
 } from "./state.js";
 import {
+  buildTtsVoiceBody,
+  setVoiceCatalog,
+  voiceLabel,
+} from "./voices.js";
+import {
   edgeFetch,
   escapeHtml,
   formatDate,
-  getVoiceId,
+  getAccessPin,
+  getAudioUrl,
   getOpenAIModel,
   getElevenlabsModelId,
   getAudioTracks,
@@ -23,6 +30,8 @@ import {
   statusClass,
   statusLabel,
 } from "./utils.js";
+
+let voicesCatalogPrimed = false;
 
 export function refreshTagFilterOptions() {
   const sel = document.getElementById("filter-tag");
@@ -39,6 +48,51 @@ export function refreshTagFilterOptions() {
     sel.appendChild(o);
   });
   if ([...tags].includes(cur)) sel.value = cur;
+  refreshAddPanelTagPicker();
+}
+
+export function refreshAddPanelTagPicker() {
+  const host = document.getElementById("tag-picker-existing");
+  if (!host) return;
+  const tags = new Set();
+  sentences.forEach((s) => (s.tags || []).forEach((t) => tags.add(t)));
+  const sorted = [...tags].sort();
+  const checked = new Set(
+    [...host.querySelectorAll("input[data-tag]:checked")].map((el) =>
+      el.getAttribute("data-tag"),
+    ),
+  );
+  host.innerHTML = "";
+  if (!sorted.length) {
+    host.innerHTML =
+      '<p class="quick-status" style="margin:0">Пока нет тегов — введите новые ниже или добавьте записи с тегами.</p>';
+    return;
+  }
+  for (const t of sorted) {
+    const row = document.createElement("label");
+    row.className = "select-wrap";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.dataset.tag = t;
+    cb.checked = checked.has(t);
+    row.appendChild(cb);
+    row.appendChild(document.createTextNode(` ${t}`));
+    host.appendChild(row);
+  }
+}
+
+function collectQuickTags() {
+  const fromInput = parseTagsInput(
+    document.getElementById("quick-tags")?.value || "",
+  );
+  const fromCb = [];
+  document
+    .querySelectorAll("#tag-picker-existing input[data-tag]:checked")
+    .forEach((el) => {
+      const t = el.getAttribute("data-tag");
+      if (t) fromCb.push(t);
+    });
+  return [...new Set([...fromCb, ...fromInput])];
 }
 
 export function updateBatchBar() {
@@ -190,6 +244,16 @@ export async function loadSentences() {
     return;
   }
   setSentences(data || []);
+  if (getAccessPin() && !voicesCatalogPrimed) {
+    voicesCatalogPrimed = true;
+    void edgeFetch("list_voices", {}).then(({ res, payload }) => {
+      if (res.ok && payload.voices?.length) {
+        setVoiceCatalog(payload.voices);
+      } else {
+        voicesCatalogPrimed = false;
+      }
+    });
+  }
   refreshTagFilterOptions();
   renderList();
 }
@@ -263,12 +327,11 @@ function edgeErrorMessage(payload, res) {
 }
 
 export async function invokeRegen(id) {
-  const voice = getVoiceId();
   const body = {
     sentence_id: id,
     elevenlabs_model_id: getElevenlabsModelId(),
+    ...buildTtsVoiceBody(),
   };
-  if (voice) body.voice_id = voice;
   const { res, payload } = await edgeFetch("regenerate_audio", body);
   if (!res.ok) throw new Error(edgeErrorMessage(payload, res));
   return payload;
@@ -276,11 +339,10 @@ export async function invokeRegen(id) {
 
 export async function invokeBatchRegen(ids) {
   let remaining = [...ids];
-  const voice = getVoiceId();
   const elevenlabs_model_id = getElevenlabsModelId();
+  const voicePart = buildTtsVoiceBody();
   while (remaining.length) {
-    const body = { sentence_ids: remaining, elevenlabs_model_id };
-    if (voice) body.voice_id = voice;
+    const body = { sentence_ids: remaining, elevenlabs_model_id, ...voicePart };
     const { res, payload } = await edgeFetch("batch_regenerate_audio", body);
     if (!res.ok) throw new Error(payload.error || res.statusText);
     remaining = payload.remainder_ids || [];
@@ -352,12 +414,32 @@ export function openEdit(id) {
       row.className = "row";
       row.style.alignItems = "center";
       row.style.flexWrap = "wrap";
-      const short =
-        t.path.length > 40 ? "…" + t.path.slice(-36) : t.path;
+      row.style.gap = "0.35rem";
       const meta = document.createElement("span");
       meta.style.fontSize = "0.8rem";
       meta.style.color = "var(--muted)";
-      meta.textContent = `#${i + 1} ${short}${t.tts_model_id ? ` · ${t.tts_model_id}` : ""}`;
+      meta.style.flex = "1";
+      meta.style.minWidth = "min(100%, 200px)";
+      meta.title = t.path;
+      const vname = voiceLabel(t.voice_id);
+      const created = t.created_at ? formatDate(t.created_at) : "";
+      meta.textContent = `#${i + 1} · ${vname}${
+        t.tts_model_id ? ` · ${String(t.tts_model_id).slice(0, 18)}` : ""
+      }${created ? ` · ${created}` : ""}`;
+      const playBtn = document.createElement("button");
+      playBtn.type = "button";
+      playBtn.className = "btn btn-secondary";
+      playBtn.textContent = "▶";
+      playBtn.title = "Прослушать";
+      playBtn.addEventListener("click", async () => {
+        const url = await getAudioUrl(t.path);
+        if (!url) {
+          showToast("Нет ссылки на файл");
+          return;
+        }
+        const sp = Number(document.getElementById("pl-speed")?.value || 1);
+        await playClip(url, sp);
+      });
       const del = document.createElement("button");
       del.type = "button";
       del.className = "btn btn-danger";
@@ -368,6 +450,7 @@ export function openEdit(id) {
         close();
       });
       row.appendChild(meta);
+      row.appendChild(playBtn);
       row.appendChild(del);
       listEl.appendChild(row);
     });
@@ -444,9 +527,7 @@ export async function quickAdd() {
   const ta = document.getElementById("quick-ru");
   const st = document.getElementById("quick-status");
   const raw = ta?.value?.trim() || "";
-  const tags = parseTagsInput(
-    document.getElementById("quick-tags")?.value || "",
-  );
+  const tags = collectQuickTags();
 
   if (!raw) {
     showToast("Введите текст");
@@ -455,15 +536,14 @@ export async function quickAdd() {
 
   st.textContent = "Перевод и аудио…";
 
-  const voice = getVoiceId();
   const body = {
     russian_text: raw,
     tags,
     skip_duplicate_check: false,
     openai_model: getOpenAIModel(),
     elevenlabs_model_id: getElevenlabsModelId(),
+    ...buildTtsVoiceBody(),
   };
-  if (voice) body.voice_id = voice;
 
   try {
     let { res, payload } = await edgeFetch("add_sentence", body);
@@ -510,14 +590,12 @@ export async function bulkImport() {
     .split(/\n/)
     .map((l) => l.trim())
     .filter(Boolean);
-  const tags = parseTagsInput(
-    document.getElementById("quick-tags")?.value || "",
-  );
+  const tags = collectQuickTags();
   if (!lines.length) {
     st.textContent = "Нет строк";
     return;
   }
-  const voice = getVoiceId();
+  const voicePart = buildTtsVoiceBody();
   st.textContent = `Импорт 0/${lines.length}…`;
   let i = 0;
   for (const line of lines) {
@@ -529,8 +607,8 @@ export async function bulkImport() {
       skip_duplicate_check: true,
       openai_model: getOpenAIModel(),
       elevenlabs_model_id: getElevenlabsModelId(),
+      ...voicePart,
     };
-    if (voice) body.voice_id = voice;
     try {
       const { res, payload } = await edgeFetch("add_sentence", body);
       if (!res.ok) console.warn(payload);

@@ -464,3 +464,24 @@ textarea.quick-russian {
   clip: rect(0, 0, 0, 0);
   border: 0;
 }
+
+.tag-picker,
+.voice-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.85rem;
+  margin: 0.35rem 0 0.75rem;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 0.25rem 0;
+  align-content: flex-start;
+}
+
+.voice-picker {
+  max-height: 280px;
+}
+
+.tag-picker .select-wrap,
+.voice-picker .select-wrap {
+  font-size: 0.9rem;
+}

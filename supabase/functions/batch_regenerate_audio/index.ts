@@ -1,7 +1,9 @@
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { requireAccessPin } from "../_shared/pin.ts";
 import { serviceClient } from "../_shared/auth.ts";
+import { textForTts } from "../_shared/tts_text.ts";
 import { synthesizeJapaneseMp3 } from "../_shared/tts.ts";
+import { pickTtsVoiceId } from "../_shared/voice_pick.ts";
 import {
   appendTrack,
   newClipStoragePath,
@@ -12,6 +14,7 @@ import {
 type Body = {
   sentence_ids: string[];
   voice_id?: string;
+  voice_ids?: string[];
   elevenlabs_model_id?: string;
 };
 
@@ -50,7 +53,6 @@ Deno.serve(async (req) => {
   const remainder = unique.slice(MAX_PER_CALL);
 
   const defaultVoice = Deno.env.get("ELEVENLABS_VOICE_ID") ?? "";
-  const voiceOverride = body.voice_id?.trim();
   const elevenModel = (body.elevenlabs_model_id ?? "").trim() || undefined;
 
   const admin = serviceClient();
@@ -68,15 +70,21 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    const jp = (row.japanese_text as string ?? "").trim();
+    const jp = textForTts(
+      row.japanese_text as string ?? "",
+      row.kana as string | null | undefined,
+    );
     if (!jp) {
       results.push({ id: sentenceId, ok: false, error: "empty_japanese" });
       continue;
     }
 
-    const voiceId = (voiceOverride ??
-      (row.tts_voice_id as string) ??
-      defaultVoice).trim();
+    const voiceId = pickTtsVoiceId({
+      voice_id: body.voice_id,
+      voice_ids: body.voice_ids,
+      rowFallback: row.tts_voice_id as string,
+      envDefault: defaultVoice,
+    });
     if (!voiceId) {
       results.push({ id: sentenceId, ok: false, error: "no_voice" });
       continue;

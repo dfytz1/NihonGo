@@ -1,7 +1,9 @@
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { requireAccessPin } from "../_shared/pin.ts";
 import { serviceClient } from "../_shared/auth.ts";
+import { textForTts } from "../_shared/tts_text.ts";
 import { synthesizeJapaneseMp3 } from "../_shared/tts.ts";
+import { pickTtsVoiceId } from "../_shared/voice_pick.ts";
 import {
   appendTrack,
   newClipStoragePath,
@@ -12,6 +14,7 @@ import {
 type Body = {
   sentence_id: string;
   voice_id?: string;
+  voice_ids?: string[];
   elevenlabs_model_id?: string;
 };
 
@@ -55,13 +58,21 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Sentence not found" }, 404);
   }
 
-  const jp = (row.japanese_text as string ?? "").trim();
+  const jp = textForTts(
+    row.japanese_text as string ?? "",
+    row.kana as string | null | undefined,
+  );
   if (!jp) {
     return jsonResponse({ error: "Japanese text is empty; translate first" }, 400);
   }
 
   const defaultVoice = Deno.env.get("ELEVENLABS_VOICE_ID") ?? "";
-  const voiceId = (body.voice_id ?? row.tts_voice_id ?? defaultVoice).trim();
+  const voiceId = pickTtsVoiceId({
+    voice_id: body.voice_id,
+    voice_ids: body.voice_ids,
+    rowFallback: row.tts_voice_id as string,
+    envDefault: defaultVoice,
+  });
   if (!voiceId) {
     return jsonResponse({ error: "No voice_id configured" }, 400);
   }

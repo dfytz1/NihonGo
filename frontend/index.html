@@ -63,6 +63,8 @@
         ></textarea>
         <label class="label" for="quick-tags">Теги (через запятую)</label>
         <input class="input" id="quick-tags" type="text" placeholder="быт, спорт, работа…" />
+        <p class="label" style="margin-bottom: 0.35rem">Уже есть в банке</p>
+        <div id="tag-picker-existing" class="tag-picker"></div>
         <div class="row">
           <button type="button" class="btn btn-primary" id="btn-add" style="flex: 2">
             Добавить
@@ -99,10 +101,6 @@
             <option value="oldest">Сначала старые</option>
           </select>
         </div>
-        <label class="row select-wrap" style="align-items: center">
-          <input type="checkbox" id="filter-today" />
-          <span>Только «новые сегодня»</span>
-        </label>
 
         <div id="batch-bar" class="toolbar hidden" style="background: var(--surface); padding: 0.5rem; border-radius: var(--radius); border: 1px solid var(--border)">
           <span id="batch-count">0</span>
@@ -199,16 +197,20 @@
         <select id="setting-openai-model" class="input"></select>
         <label class="label" for="setting-eleven-model">ElevenLabs — модель озвучки</label>
         <select id="setting-eleven-model" class="input"></select>
-        <label class="label" for="setting-voice">ElevenLabs — voice ID</label>
-        <input class="input" id="setting-voice" type="text" placeholder="Из Edge default или свой" />
+        <p class="label" style="margin-bottom: 0.35rem">Голоса ElevenLabs</p>
+        <p class="quick-status" style="margin-top: 0">
+          Отметьте один или несколько — при генерации выбирается случайный. Нужен сохранённый PIN; список с сервера.
+        </p>
+        <div id="voice-checkboxes" class="voice-picker"></div>
+        <p class="quick-status" id="voice-load-status"></p>
         <p class="quick-status">
-          Ключи API только на сервере (секреты). Здесь задаются модели, голос и PIN.
+          Ключи API только на сервере (секреты). Здесь задаются модели, голоса и PIN.
         </p>
         <button type="button" class="btn btn-primary" id="btn-save-voice">Сохранить настройки</button>
         <hr style="margin: 1.25rem 0; border: none; border-top: 1px solid var(--border)" />
-        <p class="label">Квоты API</p>
-        <p class="quick-status" id="usage-info">Нажмите «Обновить», чтобы подтянуть лимиты (ElevenLabs обычно доступно; OpenAI — не всегда).</p>
-        <button type="button" class="btn btn-secondary" id="btn-refresh-usage">Обновить API-лимиты</button>
+        <p class="label">ElevenLabs — квота</p>
+        <p class="quick-status" id="usage-info">Нажмите «Обновить», чтобы подтянуть лимиты озвучки.</p>
+        <button type="button" class="btn btn-secondary" id="btn-refresh-usage">Обновить</button>
       </main>
 
       <nav class="tab-bar" role="tablist" aria-label="Разделы">

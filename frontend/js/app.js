@@ -1,6 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import {
-  LS_VOICE,
   LS_OPENAI_MODEL,
   LS_ELEVEN_TTS_MODEL,
   selected,
@@ -41,6 +40,7 @@ import {
   invokeBatchRegen,
   updateBatchBar,
 } from "./ui.js";
+import { getSelectedVoiceIds, setSelectedVoiceIds, setVoiceCatalog } from "./voices.js";
 
 const OPENAI_MODEL_CHOICES = [
   ["gpt-4o-mini", "gpt-4o-mini"],
@@ -76,15 +76,48 @@ function formatUsagePayload(payload) {
       }
     }
   }
-  const o = payload.openai;
-  if (o && typeof o === "object") {
-    if (o.unavailable) {
-      lines.push(`OpenAI: ${o.note || "см. usage в dashboard"}`);
-    } else {
-      lines.push(`OpenAI: ${JSON.stringify(o).slice(0, 400)}`);
-    }
-  }
   return lines.join("\n") || "Нет данных";
+}
+
+async function loadVoicesIntoSettings() {
+  const host = document.getElementById("voice-checkboxes");
+  const st = document.getElementById("voice-load-status");
+  if (!host || !getAccessPin()) return;
+  if (st) st.textContent = "Загрузка голосов…";
+  try {
+    const { res, payload } = await edgeFetch("list_voices", {});
+    if (!res.ok) {
+      throw new Error(
+        [payload?.error, payload?.detail].filter(Boolean).join(" — ") ||
+          res.statusText,
+      );
+    }
+    const voices = payload.voices || [];
+    setVoiceCatalog(voices);
+    const saved = new Set(getSelectedVoiceIds());
+    host.innerHTML = "";
+    for (const v of voices) {
+      const id = v.voice_id;
+      const row = document.createElement("label");
+      row.className = "select-wrap";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.value = id;
+      cb.checked = saved.has(id);
+      row.appendChild(cb);
+      const span = document.createElement("span");
+      span.textContent = ` ${v.name || id}`;
+      row.appendChild(span);
+      host.appendChild(row);
+    }
+    if (st) {
+      st.textContent = voices.length
+        ? `Отметьте голоса (в списке до ${voices.length}).`
+        : "Нет голосов в ответе API";
+    }
+  } catch (e) {
+    if (st) st.textContent = String(e.message || e);
+  }
 }
 
 function showApp() {
@@ -204,7 +237,6 @@ async function main() {
     "filter-tag",
     "filter-fav",
     "sort-order",
-    "filter-today",
   ].forEach((id) => {
     document.getElementById(id)?.addEventListener("input", renderList);
     document.getElementById(id)?.addEventListener("change", renderList);
@@ -272,7 +304,10 @@ async function main() {
   document.querySelectorAll(".tab-bar [data-tab]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const t = btn.getAttribute("data-tab");
-      if (t) setTab(t);
+      if (t) {
+        setTab(t);
+        if (t === "settings") loadVoicesIntoSettings();
+      }
     });
   });
 
@@ -343,11 +378,15 @@ async function main() {
       ELEVEN_MODEL_CHOICES[0][0];
   }
 
-  const vIn = document.getElementById("setting-voice");
-  if (vIn) vIn.value = localStorage.getItem(LS_VOICE) || "";
   document.getElementById("btn-save-voice")?.addEventListener("click", () => {
-    const v = document.getElementById("setting-voice")?.value?.trim() || "";
-    localStorage.setItem(LS_VOICE, v);
+    const picked = [];
+    document
+      .querySelectorAll("#voice-checkboxes input[type=checkbox]:checked")
+      .forEach((el) => {
+        const v = /** @type {HTMLInputElement} */ (el).value?.trim();
+        if (v) picked.push(v);
+      });
+    setSelectedVoiceIds(picked);
     localStorage.setItem(
       LS_OPENAI_MODEL,
       document.getElementById("setting-openai-model")?.value ||

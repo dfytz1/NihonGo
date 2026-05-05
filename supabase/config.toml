@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.usage_snapshot]
 verify_jwt = false
+
+[functions.list_voices]
+verify_jwt = false

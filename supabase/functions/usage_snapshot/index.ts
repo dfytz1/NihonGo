@@ -23,7 +23,6 @@ Deno.serve(async (req) => {
   if (denied) return denied;
 
   const elevenKey = Deno.env.get("ELEVENLABS_API_KEY");
-  const openaiKey = Deno.env.get("OPENAI_API_KEY");
 
   let elevenlabs: Record<string, unknown> | null = null;
   if (elevenKey) {
@@ -49,26 +48,5 @@ Deno.serve(async (req) => {
     }
   }
 
-  let openai: Record<string, unknown> | null = null;
-  if (openaiKey) {
-    const r = await fetch("https://api.openai.com/v1/dashboard/billing/subscription", {
-      headers: { Authorization: `Bearer ${openaiKey}` },
-    });
-    if (r.ok) {
-      try {
-        openai = await r.json() as Record<string, unknown>;
-      } catch {
-        openai = { parse_error: true };
-      }
-    } else {
-      openai = {
-        unavailable: true,
-        note:
-          "Обычный API-ключ OpenAI не открывает billing. Лимиты смотрите на platform.openai.com.",
-        status: r.status,
-      };
-    }
-  }
-
-  return jsonResponse({ elevenlabs, openai });
+  return jsonResponse({ elevenlabs });
 });

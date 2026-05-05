@@ -1,5 +1,4 @@
 import {
-  LS_VOICE,
   LS_PLAYER,
   LS_THEME,
   LS_ACCESS_PIN,
@@ -22,10 +21,6 @@ export function readCfg() {
     throw new Error("Замените плейсхолдеры в js/config.js на данные Supabase");
   }
   return c;
-}
-
-export function getVoiceId() {
-  return (localStorage.getItem(LS_VOICE) || "").trim();
 }
 
 export function getOpenAIModel() {
