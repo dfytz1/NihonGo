@@ -1,5 +1,6 @@
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
-import { getUserFromRequest, serviceClient } from "../_shared/auth.ts";
+import { requireAccessPin } from "../_shared/pin.ts";
+import { serviceClient } from "../_shared/auth.ts";
 import { translateRussianToJapanese } from "../_shared/translate.ts";
 import { synthesizeJapaneseMp3 } from "../_shared/tts.ts";
 
@@ -13,6 +14,10 @@ type AddBody = {
 
 const BUCKET = "sentence-audio";
 
+function storagePath(sentenceId: string): string {
+  return `${sentenceId}.mp3`;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -22,11 +27,8 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Method not allowed" }, 405);
   }
 
-  const auth = await getUserFromRequest(req);
-  if (auth.error || !auth.user) {
-    return jsonResponse({ error: auth.error ?? "Unauthorized" }, 401);
-  }
-  const user = auth.user;
+  const denied = requireAccessPin(req);
+  if (denied) return denied;
 
   let body: AddBody;
   try {
@@ -58,7 +60,6 @@ Deno.serve(async (req) => {
     const { data: existing } = await admin
       .from("sentences")
       .select("id")
-      .eq("user_id", user.id)
       .eq("russian_text", russian)
       .maybeSingle();
     if (existing?.id) {
@@ -73,7 +74,7 @@ Deno.serve(async (req) => {
   const { data: inserted, error: insErr } = await admin
     .from("sentences")
     .insert({
-      user_id: user.id,
+      user_id: null,
       russian_text: russian,
       tags,
       status: "translating",
@@ -101,14 +102,13 @@ Deno.serve(async (req) => {
         status: "generating_audio",
         error_message: null,
       })
-      .eq("id", sentenceId)
-      .eq("user_id", user.id);
+      .eq("id", sentenceId);
 
     if (trErr) throw new Error(trErr.message);
 
     try {
       const mp3 = await synthesizeJapaneseMp3(japanese, voiceId);
-      const path = `${user.id}/${sentenceId}.mp3`;
+      const path = storagePath(sentenceId);
 
       const { error: upErr } = await admin.storage.from(BUCKET).upload(
         path,
@@ -124,8 +124,7 @@ Deno.serve(async (req) => {
             error_message: upErr.message,
             audio_path: null,
           })
-          .eq("id", sentenceId)
-          .eq("user_id", user.id);
+          .eq("id", sentenceId);
 
         const { data: final } = await admin
           .from("sentences")
@@ -146,8 +145,7 @@ Deno.serve(async (req) => {
           status: "ready",
           error_message: null,
         })
-        .eq("id", sentenceId)
-        .eq("user_id", user.id);
+        .eq("id", sentenceId);
 
       if (finErr) throw new Error(finErr.message);
     } catch (ttsOrUpload: unknown) {
@@ -161,8 +159,7 @@ Deno.serve(async (req) => {
           status: "failed_audio",
           error_message: msg,
         })
-        .eq("id", sentenceId)
-        .eq("user_id", user.id);
+        .eq("id", sentenceId);
 
       const { data: final } = await admin
         .from("sentences")
@@ -192,8 +189,7 @@ Deno.serve(async (req) => {
         status: "failed_translation",
         error_message: msg,
       })
-      .eq("id", sentenceId)
-      .eq("user_id", user.id);
+      .eq("id", sentenceId);
 
     const { data: final } = await admin
       .from("sentences")

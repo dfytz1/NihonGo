@@ -4,10 +4,13 @@
 enabled = true
 
 [functions.add_sentence]
-verify_jwt = true
+verify_jwt = false
 
 [functions.regenerate_audio]
-verify_jwt = true
+verify_jwt = false
 
 [functions.batch_regenerate_audio]
-verify_jwt = true
+verify_jwt = false
+
+[functions.verify_pin]
+verify_jwt = false

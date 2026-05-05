@@ -24,6 +24,9 @@ import {
   escapeHtml,
   showToast,
   parseTagsInput,
+  clearAccessPin,
+  getAccessPin,
+  setAccessPin,
 } from "./utils.js";
 import {
   bulkImport,
@@ -72,9 +75,9 @@ async function main() {
   const c = readCfg();
   const client = createClient(c.SUPABASE_URL, c.SUPABASE_ANON_KEY, {
     auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
     },
   });
   setSupabase(client);
@@ -83,42 +86,62 @@ async function main() {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
 
-  const {
-    data: { session },
-  } = await client.auth.getSession();
-  if (session) {
+  if (getAccessPin()) {
     showApp();
     await loadSentences();
-  } else showAuth();
+  } else {
+    showAuth();
+  }
 
-  client.auth.onAuthStateChange((_event, sess) => {
-    if (sess) {
-      showApp();
-      loadSentences();
-    } else {
-      showAuth();
-      setSentences([]);
-    }
-  });
-
-  document.getElementById("btn-magic")?.addEventListener("click", async () => {
-    const email = document.getElementById("email")?.value?.trim();
+  async function loginWithPin() {
+    const pin = document.getElementById("access-pin")?.value?.trim() ?? "";
     const msg = document.getElementById("auth-msg");
-    if (!email) {
-      msg.textContent = "Введите email";
+    if (!msg) return;
+    if (pin.length < 4) {
+      msg.textContent = "Введите PIN (минимум 4 символа)";
       return;
     }
-    const { error } = await client.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: window.location.origin },
-    });
-    msg.textContent = error
-      ? error.message
-      : "Ссылка отправлена — проверьте почту";
+    msg.textContent = "Проверка…";
+    try {
+      const r = await fetch(`${c.SUPABASE_URL}/functions/v1/verify_pin`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${c.SUPABASE_ANON_KEY}`,
+          apikey: c.SUPABASE_ANON_KEY,
+          "X-Access-Pin": pin,
+        },
+        body: JSON.stringify({}),
+      });
+      const payload = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        msg.textContent =
+          [payload.error, payload.detail]
+            .filter(Boolean)
+            .map((x) => (typeof x === "string" ? x : JSON.stringify(x)))
+            .join(" — ") || `Ошибка ${r.status}`;
+        return;
+      }
+      setAccessPin(pin);
+      msg.textContent = "";
+      const pinEl = document.getElementById("access-pin");
+      if (pinEl) pinEl.value = "";
+      showApp();
+      await loadSentences();
+    } catch (e) {
+      msg.textContent = String(e.message || e);
+    }
+  }
+
+  document.getElementById("btn-pin-login")?.addEventListener("click", loginWithPin);
+  document.getElementById("access-pin")?.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") loginWithPin();
   });
 
   document.getElementById("btn-signout")?.addEventListener("click", () => {
-    client.auth.signOut();
+    clearAccessPin();
+    setSentences([]);
+    showAuth();
   });
 
   document.getElementById("btn-theme")?.addEventListener("click", () => {
@@ -235,7 +258,9 @@ async function main() {
     const el = document.getElementById("pl-repeat-all");
     if (el) el.checked = prefs.repeatAll;
   }
-  document.getElementById("pl-repeat-all")?.addEventListener("change", (e) => {
+  document.getElementById("pl-repeat-all")?.addEventListener("change", (
+    e,
+  ) => {
     savePlayerPrefs({
       repeatAll: /** @type {HTMLInputElement} */ (e.target).checked,
     });

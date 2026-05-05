@@ -18,9 +18,11 @@ NihonGoSentences/
 ├── supabase/
 │   ├── config.toml           # Function JWT settings
 │   ├── migrations/
-│   │   └── 20260505000000_initial_schema.sql
+│   │   ├── 20260505000000_initial_schema.sql
+│   │   └── 20260506120000_personal_open_access.sql
 │   └── functions/
-│       ├── _shared/          # cors, auth, translate (OpenAI), tts (ElevenLabs)
+│       ├── _shared/          # cors, auth, pin, translate (OpenAI), tts (ElevenLabs)
+│       ├── verify_pin/
 │       ├── add_sentence/
 │       ├── regenerate_audio/
 │       └── batch_regenerate_audio/
@@ -29,17 +31,17 @@ NihonGoSentences/
 
 ## 2. SQL schema
 
-Applied by `supabase/migrations/20260505000000_initial_schema.sql`:
+Applied by `supabase/migrations/20260505000000_initial_schema.sql` and **`20260506120000_personal_open_access.sql`**.
 
 | Column             | Type        | Notes |
 |--------------------|------------|--------|
 | `id`               | uuid PK    | |
-| `user_id`          | uuid FK    | `auth.users` |
+| `user_id`          | uuid, nullable | Legacy; no Supabase Auth on the client |
 | `russian_text`     | text       | |
 | `japanese_text`    | text       | |
 | `kana`             | text       | optional reading |
 | `tags`             | text[]     | |
-| `audio_path`       | text       | path in bucket `sentence-audio` |
+| `audio_path`       | text       | path in bucket `sentence-audio` (new files: `{id}.mp3`; older rows may use `{user_id}/{id}.mp3`) |
 | `favorite`         | boolean    | |
 | `status`           | text       | `pending` … `ready` / `failed_*` |
 | `translation_model`| text       | e.g. OpenAI model id |
@@ -48,7 +50,9 @@ Applied by `supabase/migrations/20260505000000_initial_schema.sql`:
 | `created_at`       | timestamptz| |
 | `updated_at`       | timestamptz| trigger |
 
-RLS: each user only sees their rows. Storage paths: `{user_id}/{sentence_id}.mp3`.
+**RLS (after open-access migration):** the **`anon`** role can select/insert/update/delete all rows in `sentences` and all objects in `sentence-audio`. Anyone with your **anon key** (it is embedded in the static frontend) can read or change data. This is intentional for a small personal app; the **PIN** only gates **Edge Functions** that spend OpenAI / ElevenLabs credits.
+
+The **audio** bucket is set **public** so playback uses simple public URLs.
 
 ## 3. Environment variables (Edge Function **secrets**)
 
@@ -58,6 +62,7 @@ Only set **your own** secrets, for example:
 
 | Secret | Required | Purpose |
 |--------|----------|---------|
+| `ACCESS_PIN` | yes | What you type in the app (min 4 characters); sent as header `X-Access-Pin` |
 | `OPENAI_API_KEY` | yes | Translation (natural spoken Japanese) |
 | `OPENAI_MODEL` | no | Default `gpt-4o-mini` |
 | `ELEVENLABS_API_KEY` | yes | TTS |
@@ -70,10 +75,18 @@ Only set **your own** secrets, for example:
 
 The shared helper `supabase/functions/_shared/auth.ts` reads the admin client from legacy `SUPABASE_SERVICE_ROLE_KEY` or new `SUPABASE_SECRET_KEYS` JSON, whichever the platform provides.
 
+### PIN (no Supabase login)
+
+1. Set Edge secret **`ACCESS_PIN`** (and translation/TTS keys as above).
+2. Deploy **`verify_pin`** with JWT verification off (see `config.toml`).
+3. The app calls **`verify_pin`** once; if the PIN matches, it stores the PIN in **sessionStorage** and sends **`X-Access-Pin`** on every Edge request (`add_sentence`, `regenerate_audio`, `batch_regenerate_audio`).
+
+There is **no** `INTERNAL_AUTH_*` or password grant. Rotating `ACCESS_PIN` invalidates unlock until you enter the new PIN.
+
 ## 4. Setup steps
 
 1. Create a Supabase project.
-2. Run the migration (SQL Editor or CLI):
+2. Run migrations (SQL Editor or CLI):
 
    ```bash
    supabase link --project-ref YOUR_REF
@@ -84,16 +97,16 @@ The shared helper `supabase/functions/_shared/auth.ts` reads the admin client fr
 
    ```bash
    cd /path/to/NihonGoSentences
-   supabase secrets set OPENAI_API_KEY=sk-... ELEVENLABS_API_KEY=... ELEVENLABS_VOICE_ID=...
+   supabase secrets set ACCESS_PIN=your-pin OPENAI_API_KEY=sk-... ELEVENLABS_API_KEY=... ELEVENLABS_VOICE_ID=...
+   supabase functions deploy verify_pin
    supabase functions deploy add_sentence
    supabase functions deploy regenerate_audio
    supabase functions deploy batch_regenerate_audio
    ```
 
-4. **Auth → URL configuration**: add your site URL and `http://localhost:8888` (or dev port) to **Redirect URLs** for magic link.
-5. Copy `frontend/js/config.example.js` to `frontend/js/config.js` and set `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
-6. Add PWA icons under `frontend/icons/` (see `frontend/icons/README.md`).
-7. Serve `frontend/` over **HTTPS** in production (required for PWA + mic-less audio). Local dev:
+4. Copy `frontend/js/config.example.js` to `frontend/js/config.js` and set `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
+5. Add PWA icons under `frontend/icons/` (see `frontend/icons/README.md`).
+6. Serve `frontend/` over **HTTPS** in production (required for PWA + mic-less audio). Local dev:
 
    ```bash
    cd frontend && python3 -m http.server 8888
@@ -105,20 +118,9 @@ The shared helper `supabase/functions/_shared/auth.ts` reads the admin client fr
 
 Deploy **`frontend/`** as a static site. The build step writes `js/config.js` from Vercel environment variables (so you don’t commit keys, though the **anon** key is public by design).
 
-### One-time: Supabase Auth URLs
-
-In [Supabase → Authentication → URL configuration](https://supabase.com/dashboard/project/_/auth/url-configuration):
-
-1. **Site URL**: your Vercel URL, e.g. `https://your-app.vercel.app`
-2. **Redirect URLs**: add  
-   `https://your-app.vercel.app/**`  
-   (and keep `http://localhost:8888/**` for local dev if you want)
-
-After the first deploy, copy the exact `*.vercel.app` URL into these fields (or use your custom domain).
-
 ### Connect Vercel to GitHub
 
-1. [Vercel](https://vercel.com) → **Add New… → Project** → import **`NihonGoSentences`**.
+1. [Vercel](https://vercel.com) → **Add New… → Project** → import your repo.
 2. **Root Directory**: set to **`frontend`** (important).
 3. **Framework Preset**: Vercel may pick “Other”; build is defined in `frontend/package.json`.
 4. **Environment Variables** → **Production** (and **Preview** if you use previews):
@@ -128,7 +130,9 @@ After the first deploy, copy the exact `*.vercel.app` URL into these fields (or 
    | `SUPABASE_URL` | `https://YOUR_REF.supabase.co` |
    | `SUPABASE_ANON_KEY` | Publishable/anon key (same as local `config.js`) |
 
-5. **Deploy**. After it finishes, open the `.vercel.app` URL, sign in with magic link (use an email you can open on the phone).
+5. **Deploy**. After it finishes, open the `.vercel.app` URL and unlock with your **PIN**.
+
+Auth **URL configuration** in Supabase is optional for this flow (no OAuth or magic links in the app).
 
 ### iPhone
 
@@ -137,7 +141,7 @@ Safari → your site → **Share** → **Add to Home Screen**.
 ### CLI alternative
 
 ```bash
-cd /Users/ivangrebennikov/NihonGoSentences/frontend
+cd /path/to/NihonGoSentences/frontend
 npx vercel link
 npx vercel env add SUPABASE_URL
 npx vercel env add SUPABASE_ANON_KEY
@@ -156,6 +160,7 @@ Any host that serves the `frontend/` folder over **HTTPS** works the same way: r
 
 | Function | Body | Behavior |
 |----------|------|----------|
+| `verify_pin` | `{}` (PIN in header `X-Access-Pin`) | Returns `{ ok: true }` if PIN matches `ACCESS_PIN` |
 | `add_sentence` | `{ russian_text, tags?, voice_id?, skip_duplicate_check? }` | Translate → TTS → Storage → row; duplicate detection unless `skip_duplicate_check` |
 | `regenerate_audio` | `{ sentence_id, voice_id? }` | Regenerate MP3 for existing Japanese text |
 | `batch_regenerate_audio` | `{ sentence_ids: string[], voice_id? }` | Up to 8 per call; repeat with `remainder_ids` if returned |

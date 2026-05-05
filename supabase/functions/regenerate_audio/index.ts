@@ -1,10 +1,15 @@
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
-import { getUserFromRequest, serviceClient } from "../_shared/auth.ts";
+import { requireAccessPin } from "../_shared/pin.ts";
+import { serviceClient } from "../_shared/auth.ts";
 import { synthesizeJapaneseMp3 } from "../_shared/tts.ts";
 
 type Body = { sentence_id: string; voice_id?: string };
 
 const BUCKET = "sentence-audio";
+
+function storagePath(sentenceId: string): string {
+  return `${sentenceId}.mp3`;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -15,11 +20,8 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Method not allowed" }, 405);
   }
 
-  const auth = await getUserFromRequest(req);
-  if (auth.error || !auth.user) {
-    return jsonResponse({ error: auth.error ?? "Unauthorized" }, 401);
-  }
-  const user = auth.user;
+  const denied = requireAccessPin(req);
+  if (denied) return denied;
 
   let body: Body;
   try {
@@ -39,7 +41,6 @@ Deno.serve(async (req) => {
     .from("sentences")
     .select()
     .eq("id", sentenceId)
-    .eq("user_id", user.id)
     .single();
 
   if (fetchErr || !row) {
@@ -64,12 +65,11 @@ Deno.serve(async (req) => {
       tts_voice_id: voiceId,
       error_message: null,
     })
-    .eq("id", sentenceId)
-    .eq("user_id", user.id);
+    .eq("id", sentenceId);
 
   try {
     const mp3 = await synthesizeJapaneseMp3(jp, voiceId);
-    const path = `${user.id}/${sentenceId}.mp3`;
+    const path = storagePath(sentenceId);
 
     const { error: upErr } = await admin.storage.from(BUCKET).upload(
       path,
@@ -84,8 +84,7 @@ Deno.serve(async (req) => {
           status: "failed_storage",
           error_message: upErr.message,
         })
-        .eq("id", sentenceId)
-        .eq("user_id", user.id);
+        .eq("id", sentenceId);
       const { data: final } = await admin
         .from("sentences")
         .select()
@@ -101,8 +100,7 @@ Deno.serve(async (req) => {
         status: "ready",
         error_message: null,
       })
-      .eq("id", sentenceId)
-      .eq("user_id", user.id);
+      .eq("id", sentenceId);
 
     const { data: final } = await admin
       .from("sentences")
@@ -119,8 +117,7 @@ Deno.serve(async (req) => {
         status: "failed_audio",
         error_message: msg,
       })
-      .eq("id", sentenceId)
-      .eq("user_id", user.id);
+      .eq("id", sentenceId);
 
     const { data: final } = await admin
       .from("sentences")

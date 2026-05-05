@@ -2,6 +2,7 @@ import {
   LS_VOICE,
   LS_PLAYER,
   LS_THEME,
+  SESSION_ACCESS_PIN,
   getToastTimer,
   setToastTimer,
   supabase,
@@ -23,6 +24,27 @@ export function readCfg() {
 
 export function getVoiceId() {
   return (localStorage.getItem(LS_VOICE) || "").trim();
+}
+
+export function getAccessPin() {
+  return (
+    (typeof sessionStorage !== "undefined" &&
+      sessionStorage.getItem(SESSION_ACCESS_PIN)) ||
+    ""
+  ).trim();
+}
+
+export function setAccessPin(pin) {
+  const p = String(pin ?? "").trim();
+  if (typeof sessionStorage !== "undefined") {
+    sessionStorage.setItem(SESSION_ACCESS_PIN, p);
+  }
+}
+
+export function clearAccessPin() {
+  if (typeof sessionStorage !== "undefined") {
+    sessionStorage.removeItem(SESSION_ACCESS_PIN);
+  }
 }
 
 export function loadPlayerPrefs() {
@@ -97,17 +119,16 @@ export function statusClass(st) {
 
 export async function edgeFetch(fnName, body) {
   if (!supabase) throw new Error("Нет клиента");
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) throw new Error("Нет сессии");
+  const pin = getAccessPin();
+  if (!pin) throw new Error("Нет PIN — войдите");
   const c = readCfg();
   const res = await fetch(`${c.SUPABASE_URL}/functions/v1/${fnName}`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${session.access_token}`,
+      Authorization: `Bearer ${c.SUPABASE_ANON_KEY}`,
       apikey: c.SUPABASE_ANON_KEY,
       "Content-Type": "application/json",
+      "X-Access-Pin": pin,
     },
     body: JSON.stringify(body),
   });
@@ -122,14 +143,8 @@ export async function edgeFetch(fnName, body) {
 
 export async function getAudioUrl(path) {
   if (!path || !supabase) return null;
-  const { data, error } = await supabase.storage
-    .from("sentence-audio")
-    .createSignedUrl(path, 3600);
-  if (error) {
-    console.warn(error);
-    return null;
-  }
-  return data.signedUrl;
+  const { data } = supabase.storage.from("sentence-audio").getPublicUrl(path);
+  return data?.publicUrl ?? null;
 }
 
 export function sleep(ms) {

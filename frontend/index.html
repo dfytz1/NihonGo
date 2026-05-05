@@ -18,12 +18,19 @@
     <div id="auth-screen" class="hidden">
       <div class="auth-box">
         <h1>Nihon Sentences</h1>
-        <p>Частный банк фраз: русский → естественный японский + озвучка. Войдите через magic link.</p>
-        <label class="label" for="email">Email</label>
-        <input class="input" id="email" type="email" autocomplete="email" placeholder="you@example.com" />
+        <p>Частный банк фраз. PIN защищает перевод и озвучку на сервере; вход без почты.</p>
+        <label class="label" for="access-pin">PIN</label>
+        <input
+          class="input"
+          id="access-pin"
+          type="password"
+          autocomplete="current-password"
+          enterkeyhint="go"
+          placeholder="••••••"
+        />
         <div class="row" style="margin-top: 1rem">
-          <button type="button" class="btn btn-primary" id="btn-magic" style="flex: 1">
-            Отправить ссылку
+          <button type="button" class="btn btn-primary" id="btn-pin-login" style="flex: 1">
+            Войти
           </button>
         </div>
         <p id="auth-msg" class="quick-status"></p>
