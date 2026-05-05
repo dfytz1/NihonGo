@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.verify_pin]
 verify_jwt = false
+
+[functions.usage_snapshot]
+verify_jwt = false

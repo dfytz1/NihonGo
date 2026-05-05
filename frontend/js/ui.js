@@ -14,6 +14,9 @@ import {
   escapeHtml,
   formatDate,
   getVoiceId,
+  getOpenAIModel,
+  getElevenlabsModelId,
+  getAudioTracks,
   parseTagsInput,
   showToast,
   sleep,
@@ -74,6 +77,10 @@ export function renderList() {
       : "";
 
     const favStar = s.favorite ? "★" : "☆";
+    const tracks = getAudioTracks(s);
+    const nTracks = tracks.length;
+    const canPlay = nTracks > 0;
+    const canTts = (s.japanese_text || "").trim().length > 0;
     card.innerHTML = `
       ${cb ? `<div class="row" style="margin-bottom:0.5rem">${cb}</div>` : ""}
       <p class="ru">${escapeHtml(s.russian_text)}</p>
@@ -83,6 +90,7 @@ export function renderList() {
         <span class="status-pill ${statusClass(s.status)}">${escapeHtml(
           statusLabel(s.status),
         )}</span>
+        ${nTracks ? `<span class="tag-chip" title="Число озвучек">♪×${nTracks}</span>` : ""}
         <span>${formatDate(s.created_at)}</span>
         ${
           (s.tags || [])
@@ -97,10 +105,15 @@ export function renderList() {
       }
       <div class="card-actions">
         <button type="button" class="btn btn-secondary btn-play-one" data-id="${s.id}" ${
-          !(s.status === "ready" && s.audio_path) ? "disabled" : ""
+          !canPlay ? "disabled" : ""
         }>▶</button>
         <button type="button" class="btn btn-secondary btn-fav" data-id="${s.id}">${favStar}</button>
         <button type="button" class="btn btn-secondary btn-edit" data-id="${s.id}">Правка</button>
+        ${
+          canTts
+            ? `<button type="button" class="btn btn-secondary btn-add-track" data-id="${s.id}">+Озвучка</button>`
+            : ""
+        }
         ${
           s.status === "failed_audio" || s.status === "failed_storage"
             ? `<button type="button" class="btn btn-primary btn-retry-tts" data-id="${s.id}">Озвучка снова</button>`
@@ -146,6 +159,21 @@ export function renderList() {
       }
     });
   });
+  root.querySelectorAll(".btn-add-track").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const id = b.getAttribute("data-id");
+      if (!id) return;
+      try {
+        showToast("Новая дорожка…");
+        await invokeRegen(id);
+        await loadSentences();
+        showToast("Готово");
+      } catch (e) {
+        showToast(String(e.message || e));
+        await loadSentences();
+      }
+    });
+  });
   root.querySelectorAll(".btn-del").forEach((b) => {
     b.addEventListener("click", () => delSentence(b.getAttribute("data-id")));
   });
@@ -166,6 +194,26 @@ export async function loadSentences() {
   renderList();
 }
 
+export async function deleteAudioTrack(sentenceId, pathToRemove) {
+  if (!pathToRemove || !supabase) return;
+  const s = sentences.find((x) => x.id === sentenceId);
+  if (!s) return;
+  const tracks = getAudioTracks(s).filter((t) => t.path !== pathToRemove);
+  await supabase.storage.from("sentence-audio").remove([pathToRemove]);
+  const patch = {
+    audio_tracks: tracks,
+    audio_path: tracks.length ? tracks[tracks.length - 1].path : null,
+    status: tracks.length ? "ready" : "failed_audio",
+    error_message: null,
+  };
+  const { error } = await supabase
+    .from("sentences")
+    .update(patch)
+    .eq("id", sentenceId);
+  if (error) showToast(error.message);
+  else await loadSentences();
+}
+
 export async function toggleFav(id) {
   const s = sentences.find((x) => x.id === id);
   if (!s || !supabase) return;
@@ -181,8 +229,9 @@ export async function delSentence(id) {
   if (!confirm("Удалить эту запись?")) return;
   const s = sentences.find((x) => x.id === id);
   if (!s || !supabase) return;
-  if (s.audio_path) {
-    await supabase.storage.from("sentence-audio").remove([s.audio_path]);
+  const paths = getAudioTracks(s).map((t) => t.path);
+  if (paths.length) {
+    await supabase.storage.from("sentence-audio").remove(paths);
   }
   const { error } = await supabase.from("sentences").delete().eq("id", id);
   if (error) showToast(error.message);
@@ -194,7 +243,10 @@ export async function delSentence(id) {
 
 export async function invokeRegen(id) {
   const voice = getVoiceId();
-  const body = { sentence_id: id };
+  const body = {
+    sentence_id: id,
+    elevenlabs_model_id: getElevenlabsModelId(),
+  };
   if (voice) body.voice_id = voice;
   const { res, payload } = await edgeFetch("regenerate_audio", body);
   if (!res.ok) throw new Error(payload.error || res.statusText);
@@ -204,8 +256,9 @@ export async function invokeRegen(id) {
 export async function invokeBatchRegen(ids) {
   let remaining = [...ids];
   const voice = getVoiceId();
+  const elevenlabs_model_id = getElevenlabsModelId();
   while (remaining.length) {
-    const body = { sentence_ids: remaining };
+    const body = { sentence_ids: remaining, elevenlabs_model_id };
     if (voice) body.voice_id = voice;
     const { res, payload } = await edgeFetch("batch_regenerate_audio", body);
     if (!res.ok) throw new Error(payload.error || res.statusText);
@@ -261,6 +314,44 @@ export function openEdit(id) {
   mkArea("Японский", s.japanese_text || "", "edit-jp");
   mkInput("Кана", s.kana || "", "edit-kana");
   mkInput("Теги (через запятую)", (s.tags || []).join(", "), "edit-tags");
+
+  const tracks = getAudioTracks(s);
+  if (tracks.length) {
+    const h3 = document.createElement("h3");
+    h3.style.fontSize = "0.95rem";
+    h3.style.marginTop = "0.75rem";
+    h3.textContent = "Озвучки (удалить ненужные)";
+    modal.appendChild(h3);
+    const listEl = document.createElement("div");
+    listEl.style.display = "flex";
+    listEl.style.flexDirection = "column";
+    listEl.style.gap = "0.35rem";
+    tracks.forEach((t, i) => {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.style.alignItems = "center";
+      row.style.flexWrap = "wrap";
+      const short =
+        t.path.length > 40 ? "…" + t.path.slice(-36) : t.path;
+      const meta = document.createElement("span");
+      meta.style.fontSize = "0.8rem";
+      meta.style.color = "var(--muted)";
+      meta.textContent = `#${i + 1} ${short}${t.tts_model_id ? ` · ${t.tts_model_id}` : ""}`;
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "btn btn-danger";
+      del.textContent = "Удалить";
+      del.addEventListener("click", async () => {
+        if (!confirm("Удалить эту дорожку из хранилища?")) return;
+        await deleteAudioTrack(id, t.path);
+        close();
+      });
+      row.appendChild(meta);
+      row.appendChild(del);
+      listEl.appendChild(row);
+    });
+    modal.appendChild(listEl);
+  }
 
   const actions = document.createElement("div");
   actions.className = "modal-actions";
@@ -344,7 +435,13 @@ export async function quickAdd() {
   st.textContent = "Перевод и аудио…";
 
   const voice = getVoiceId();
-  const body = { russian_text: raw, tags, skip_duplicate_check: false };
+  const body = {
+    russian_text: raw,
+    tags,
+    skip_duplicate_check: false,
+    openai_model: getOpenAIModel(),
+    elevenlabs_model_id: getElevenlabsModelId(),
+  };
   if (voice) body.voice_id = voice;
 
   try {
@@ -405,7 +502,13 @@ export async function bulkImport() {
   for (const line of lines) {
     i++;
     st.textContent = `Импорт ${i}/${lines.length}…`;
-    const body = { russian_text: line, tags, skip_duplicate_check: true };
+    const body = {
+      russian_text: line,
+      tags,
+      skip_duplicate_check: true,
+      openai_model: getOpenAIModel(),
+      elevenlabs_model_id: getElevenlabsModelId(),
+    };
     if (voice) body.voice_id = voice;
     try {
       const { res, payload } = await edgeFetch("add_sentence", body);
@@ -430,6 +533,7 @@ export function exportCsv() {
     "tags",
     "status",
     "favorite",
+    "audio_paths",
     "created_at",
   ];
   const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
@@ -439,7 +543,11 @@ export function exportCsv() {
       cols
         .map((c) =>
           esc(
-            c === "tags" ? (s.tags || []).join(";") : s[c],
+            c === "tags"
+              ? (s.tags || []).join(";")
+              : c === "audio_paths"
+              ? getAudioTracks(s).map((t) => t.path).join("|")
+              : s[c],
           ),
         )
         .join(","),

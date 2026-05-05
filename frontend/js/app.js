@@ -1,6 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import {
   LS_VOICE,
+  LS_OPENAI_MODEL,
+  LS_ELEVEN_TTS_MODEL,
   selected,
   selectMode,
   sentences,
@@ -27,6 +29,7 @@ import {
   clearAccessPin,
   getAccessPin,
   setAccessPin,
+  edgeFetch,
 } from "./utils.js";
 import {
   bulkImport,
@@ -38,6 +41,51 @@ import {
   invokeBatchRegen,
   updateBatchBar,
 } from "./ui.js";
+
+const OPENAI_MODEL_CHOICES = [
+  ["gpt-4o-mini", "gpt-4o-mini"],
+  ["gpt-4o", "gpt-4o"],
+  ["gpt-4.1-mini", "gpt-4.1-mini"],
+  ["gpt-4.1", "gpt-4.1"],
+];
+
+const ELEVEN_MODEL_CHOICES = [
+  ["eleven_multilingual_v2", "Multilingual v2"],
+  ["eleven_turbo_v2_5", "Turbo v2.5"],
+  ["eleven_flash_v2_5", "Flash v2.5"],
+  ["eleven_v3", "v3 (если доступна в аккаунте)"],
+];
+
+function formatUsagePayload(payload) {
+  const lines = [];
+  const e = payload.elevenlabs;
+  if (e && typeof e === "object") {
+    if (e.error) {
+      lines.push(`ElevenLabs: ${e.error}${e.detail ? " — " + e.detail : ""}`);
+    } else {
+      const used =
+        e.character_count ?? e.character_count_used ?? e.usage ?? null;
+      const lim = e.character_limit ?? e.max_chars ?? null;
+      const tier = e.tier ?? "";
+      if (typeof used === "number" && typeof lim === "number") {
+        lines.push(
+          `ElevenLabs${tier ? ` (${tier})` : ""}: символы ${used} / ${lim}`,
+        );
+      } else {
+        lines.push(`ElevenLabs: ${JSON.stringify(e).slice(0, 400)}`);
+      }
+    }
+  }
+  const o = payload.openai;
+  if (o && typeof o === "object") {
+    if (o.unavailable) {
+      lines.push(`OpenAI: ${o.note || "см. usage в dashboard"}`);
+    } else {
+      lines.push(`OpenAI: ${JSON.stringify(o).slice(0, 400)}`);
+    }
+  }
+  return lines.join("\n") || "Нет данных";
+}
 
 function showApp() {
   document.getElementById("auth-screen")?.classList.add("hidden");
@@ -156,7 +204,6 @@ async function main() {
     "search",
     "filter-tag",
     "filter-fav",
-    "filter-status",
     "sort-order",
     "filter-today",
   ].forEach((id) => {
@@ -271,13 +318,69 @@ async function main() {
   document.getElementById("btn-next")?.addEventListener("click", playerNext);
   document.getElementById("btn-prev")?.addEventListener("click", playerPrev);
 
+  const oSel = document.getElementById("setting-openai-model");
+  if (oSel) {
+    oSel.innerHTML = "";
+    for (const [v, label] of OPENAI_MODEL_CHOICES) {
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = label;
+      oSel.appendChild(o);
+    }
+    oSel.value =
+      localStorage.getItem(LS_OPENAI_MODEL) || OPENAI_MODEL_CHOICES[0][0];
+  }
+  const elSel = document.getElementById("setting-eleven-model");
+  if (elSel) {
+    elSel.innerHTML = "";
+    for (const [v, label] of ELEVEN_MODEL_CHOICES) {
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = label;
+      elSel.appendChild(o);
+    }
+    elSel.value =
+      localStorage.getItem(LS_ELEVEN_TTS_MODEL) ||
+      ELEVEN_MODEL_CHOICES[0][0];
+  }
+
   const vIn = document.getElementById("setting-voice");
   if (vIn) vIn.value = localStorage.getItem(LS_VOICE) || "";
   document.getElementById("btn-save-voice")?.addEventListener("click", () => {
     const v = document.getElementById("setting-voice")?.value?.trim() || "";
     localStorage.setItem(LS_VOICE, v);
-    showToast("Voice ID сохранён");
+    localStorage.setItem(
+      LS_OPENAI_MODEL,
+      document.getElementById("setting-openai-model")?.value ||
+        OPENAI_MODEL_CHOICES[0][0],
+    );
+    localStorage.setItem(
+      LS_ELEVEN_TTS_MODEL,
+      document.getElementById("setting-eleven-model")?.value ||
+        ELEVEN_MODEL_CHOICES[0][0],
+    );
+    showToast("Настройки сохранены");
   });
+
+  document.getElementById("btn-refresh-usage")?.addEventListener(
+    "click",
+    async () => {
+      const el = document.getElementById("usage-info");
+      if (el) el.textContent = "Загрузка…";
+      try {
+        const { res, payload } = await edgeFetch("usage_snapshot", {});
+        if (!res.ok) {
+          throw new Error(
+            [payload?.error, payload?.detail].filter(Boolean).join(" — ") ||
+              res.statusText,
+          );
+        }
+        if (el) el.textContent = formatUsagePayload(payload);
+      } catch (e) {
+        if (el) el.textContent = String(e.message || e);
+      }
+    },
+  );
 }
 
 main();

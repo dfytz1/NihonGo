@@ -1,6 +1,11 @@
 import { filteredSentences, playable } from "./filters.js";
 import { player, sentences } from "./state.js";
-import { getAudioUrl, showToast, sleep } from "./utils.js";
+import {
+  getAudioUrl,
+  pickRandomAudioPath,
+  showToast,
+  sleep,
+} from "./utils.js";
 
 /** @type {HTMLAudioElement | null} */
 let audioEl = null;
@@ -87,7 +92,8 @@ export async function runPlayerLoop() {
   const base = playable(filteredSentences());
   if (!base.length) {
     if (stEl) {
-      stEl.textContent = "Нет готовых записей с аудио в текущем фильтре.";
+      stEl.textContent =
+        "Нет записей с сохранённым аудио в текущем фильтре.";
     }
     player.running = false;
     return;
@@ -125,14 +131,22 @@ export async function runPlayerLoop() {
     if (npk) npk.textContent = s.kana || "";
     if (npr) npr.textContent = s.russian_text || "";
 
-    const url = await getAudioUrl(s.audio_path);
-    if (!url) {
+    if (!pickRandomAudioPath(s)) {
       player.index++;
       continue;
     }
 
     for (let r = 0; r < repeat && player.running; r++) {
-      if (stEl) stEl.textContent = `Играет (${r + 1}/${repeat})…`;
+      const path = pickRandomAudioPath(s);
+      const url = path ? await getAudioUrl(path) : null;
+      if (!url) break;
+
+      if (stEl) {
+        stEl.textContent =
+          repeat > 1
+            ? `Играет (${r + 1}/${repeat}, случайная дорожка)…`
+            : "Играет (случайная дорожка)…";
+      }
       await playClip(url, speed);
       if (!player.running) break;
       if (player.seekDelta !== 0) break;
@@ -178,9 +192,11 @@ export function startPlayer() {
 
 export async function playSingle(id) {
   const s = sentences.find((x) => x.id === id);
-  if (!s?.audio_path) return;
+  if (!s) return;
+  const path = pickRandomAudioPath(s);
+  if (!path) return;
   stopPlayer();
-  const url = await getAudioUrl(s.audio_path);
+  const url = await getAudioUrl(path);
   if (!url) {
     showToast("Не удалось получить ссылку на аудио");
     return;

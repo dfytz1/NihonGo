@@ -1,10 +1,10 @@
 import { sentences } from "./state.js";
+import { getAudioTracks } from "./utils.js";
 
 export function filteredSentences() {
   const q = (document.getElementById("search")?.value || "").toLowerCase().trim();
   const tag = document.getElementById("filter-tag")?.value || "";
   const fav = document.getElementById("filter-fav")?.value || "all";
-  const st = document.getElementById("filter-status")?.value || "all";
   const sort = document.getElementById("sort-order")?.value || "newest";
   const todayOnly = document.getElementById("filter-today")?.checked;
 
@@ -31,16 +31,6 @@ export function filteredSentences() {
 
   if (fav === "fav") list = list.filter((s) => s.favorite);
 
-  if (st === "ready") {
-    list = list.filter((s) => s.status === "ready" && s.audio_path);
-  } else if (st === "no_audio") {
-    list = list.filter((s) => !(s.status === "ready" && s.audio_path));
-  } else if (st === "failed") {
-    list = list.filter(
-      (s) => s.status === "failed_audio" || s.status === "failed_storage",
-    );
-  }
-
   if (todayOnly) {
     list = list.filter((s) => {
       const d = new Date(s.created_at);
@@ -59,5 +49,5 @@ export function filteredSentences() {
 }
 
 export function playable(list) {
-  return list.filter((s) => s.status === "ready" && s.audio_path);
+  return list.filter((s) => getAudioTracks(s).length > 0);
 }

@@ -2,14 +2,20 @@ import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { requireAccessPin } from "../_shared/pin.ts";
 import { serviceClient } from "../_shared/auth.ts";
 import { synthesizeJapaneseMp3 } from "../_shared/tts.ts";
+import {
+  appendTrack,
+  newClipStoragePath,
+  existingTracksFromRow,
+  type AudioTrackRow,
+} from "../_shared/tracks.ts";
 
-type Body = { sentence_id: string; voice_id?: string };
+type Body = {
+  sentence_id: string;
+  voice_id?: string;
+  elevenlabs_model_id?: string;
+};
 
 const BUCKET = "sentence-audio";
-
-function storagePath(sentenceId: string): string {
-  return `${sentenceId}.mp3`;
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -58,6 +64,8 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "No voice_id configured" }, 400);
   }
 
+  const elevenModel = (body.elevenlabs_model_id ?? "").trim() || undefined;
+
   await admin
     .from("sentences")
     .update({
@@ -68,13 +76,19 @@ Deno.serve(async (req) => {
     .eq("id", sentenceId);
 
   try {
-    const mp3 = await synthesizeJapaneseMp3(jp, voiceId);
-    const path = storagePath(sentenceId);
+    const mp3 = await synthesizeJapaneseMp3(jp, voiceId, elevenModel);
+    const path = newClipStoragePath(sentenceId);
+    const track: AudioTrackRow = {
+      path,
+      voice_id: voiceId,
+      tts_model_id: elevenModel,
+      created_at: new Date().toISOString(),
+    };
 
     const { error: upErr } = await admin.storage.from(BUCKET).upload(
       path,
       mp3,
-      { contentType: "audio/mpeg", upsert: true },
+      { contentType: "audio/mpeg", upsert: false },
     );
 
     if (upErr) {
@@ -93,10 +107,15 @@ Deno.serve(async (req) => {
       return jsonResponse({ sentence: final, error: "Storage failed" }, 500);
     }
 
+    const existing = existingTracksFromRow(row as Record<string, unknown>);
+    const tracks = appendTrack(existing, track);
+    const lastPath = tracks[tracks.length - 1]!.path;
+
     await admin
       .from("sentences")
       .update({
-        audio_path: path,
+        audio_path: lastPath,
+        audio_tracks: tracks,
         status: "ready",
         error_message: null,
       })

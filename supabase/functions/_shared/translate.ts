@@ -15,11 +15,16 @@ export type TranslationResult = {
 
 export async function translateRussianToJapanese(
   russianText: string,
+  modelOverride?: string,
 ): Promise<TranslationResult> {
   const key = Deno.env.get("OPENAI_API_KEY");
   if (!key) throw new Error("OPENAI_API_KEY is not configured on the server");
 
-  const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o-mini";
+  const trimmed = modelOverride?.trim();
+  const model =
+    trimmed ||
+    Deno.env.get("OPENAI_MODEL")?.trim() ||
+    "gpt-4o-mini";
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",

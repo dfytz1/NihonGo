@@ -3,6 +3,8 @@ import {
   LS_PLAYER,
   LS_THEME,
   LS_ACCESS_PIN,
+  LS_OPENAI_MODEL,
+  LS_ELEVEN_TTS_MODEL,
   getToastTimer,
   setToastTimer,
   supabase,
@@ -24,6 +26,49 @@ export function readCfg() {
 
 export function getVoiceId() {
   return (localStorage.getItem(LS_VOICE) || "").trim();
+}
+
+export function getOpenAIModel() {
+  return (localStorage.getItem(LS_OPENAI_MODEL) || "gpt-4o-mini").trim();
+}
+
+export function getElevenlabsModelId() {
+  return (
+    localStorage.getItem(LS_ELEVEN_TTS_MODEL) || "eleven_multilingual_v2"
+  ).trim();
+}
+
+/** @returns {{ path: string, voice_id?: string, tts_model_id?: string, created_at?: string }[]} */
+export function getAudioTracks(s) {
+  if (!s) return [];
+  const raw = s.audio_tracks;
+  if (Array.isArray(raw) && raw.length) {
+    return raw
+      .filter((t) => t && typeof t.path === "string" && String(t.path).trim())
+      .map((t) => ({
+        path: String(t.path).trim(),
+        voice_id: t.voice_id,
+        tts_model_id: t.tts_model_id,
+        created_at: t.created_at,
+      }));
+  }
+  if (s.audio_path && String(s.audio_path).trim()) {
+    return [
+      {
+        path: String(s.audio_path).trim(),
+        voice_id: s.tts_voice_id,
+        tts_model_id: undefined,
+        created_at: s.created_at,
+      },
+    ];
+  }
+  return [];
+}
+
+export function pickRandomAudioPath(s) {
+  const paths = getAudioTracks(s).map((t) => t.path);
+  if (!paths.length) return null;
+  return paths[Math.floor(Math.random() * paths.length)];
 }
 
 export function getAccessPin() {

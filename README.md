@@ -19,10 +19,12 @@ NihonGoSentences/
 │   ├── config.toml           # Function JWT settings
 │   ├── migrations/
 │   │   ├── 20260505000000_initial_schema.sql
-│   │   └── 20260506120000_personal_open_access.sql
+│   │   ├── 20260506120000_personal_open_access.sql
+│   │   └── 20260507100000_audio_tracks.sql
 │   └── functions/
 │       ├── _shared/          # cors, auth, pin, translate (OpenAI), tts (ElevenLabs)
 │       ├── verify_pin/
+│       ├── usage_snapshot/
 │       ├── add_sentence/
 │       ├── regenerate_audio/
 │       └── batch_regenerate_audio/
@@ -31,7 +33,7 @@ NihonGoSentences/
 
 ## 2. SQL schema
 
-Applied by `supabase/migrations/20260505000000_initial_schema.sql` and **`20260506120000_personal_open_access.sql`**.
+Applied by `supabase/migrations/20260505000000_initial_schema.sql`, **`20260506120000_personal_open_access.sql`**, and **`20260507100000_audio_tracks.sql`**.
 
 | Column             | Type        | Notes |
 |--------------------|------------|--------|
@@ -41,7 +43,7 @@ Applied by `supabase/migrations/20260505000000_initial_schema.sql` and **`202605
 | `japanese_text`    | text       | |
 | `kana`             | text       | optional reading |
 | `tags`             | text[]     | |
-| `audio_path`       | text       | path in bucket `sentence-audio` (new files: `{id}.mp3`; older rows may use `{user_id}/{id}.mp3`) |
+| `audio_path`       | text       | legacy single path; **`audio_tracks`** holds all clips (`jsonb` array of `{ path, voice_id?, tts_model_id?, created_at }`). New files: `{sentence_id}/{uuid}.mp3` |
 | `favorite`         | boolean    | |
 | `status`           | text       | `pending` … `ready` / `failed_*` |
 | `translation_model`| text       | e.g. OpenAI model id |
@@ -79,7 +81,7 @@ The shared helper `supabase/functions/_shared/auth.ts` reads the admin client fr
 
 1. Set Edge secret **`ACCESS_PIN`** (and translation/TTS keys as above).
 2. Deploy **`verify_pin`** with JWT verification off (see `config.toml`).
-3. The app calls **`verify_pin`** once; if the PIN matches, it stores the PIN in **localStorage** (until you sign out) and sends **`X-Access-Pin`** on every Edge request (`add_sentence`, `regenerate_audio`, `batch_regenerate_audio`).
+3. The app calls **`verify_pin`** once; if the PIN matches, it stores the PIN in **localStorage** (until you sign out) and sends **`X-Access-Pin`** on every Edge request (`add_sentence`, `regenerate_audio`, `batch_regenerate_audio`, `usage_snapshot`).
 
 There is **no** `INTERNAL_AUTH_*` or password grant. Rotating `ACCESS_PIN` invalidates unlock until you enter the new PIN.
 
@@ -98,6 +100,7 @@ There is **no** `INTERNAL_AUTH_*` or password grant. Rotating `ACCESS_PIN` inval
    ```bash
    cd /path/to/NihonGoSentences
    supabase secrets set ACCESS_PIN=your-pin OPENAI_API_KEY=sk-... ELEVENLABS_API_KEY=... ELEVENLABS_VOICE_ID=...
+   supabase functions deploy usage_snapshot
    supabase functions deploy verify_pin
    supabase functions deploy add_sentence
    supabase functions deploy regenerate_audio
@@ -121,7 +124,7 @@ Deploy **`frontend/`** as a static site. The build step writes `js/config.js` fr
 ### Connect Vercel to GitHub
 
 1. [Vercel](https://vercel.com) → **Add New… → Project** → import your repo.
-2. **Root Directory**: set to **`frontend`** (important).
+2. **Root Directory**: **`frontend`** **or** repo root if you use the root `vercel.json` that `cd`s into `frontend/` (see root `vercel.json`).
 3. **Framework Preset**: Vercel may pick “Other”; build is defined in `frontend/package.json`.
 4. **Environment Variables** → **Production** (and **Preview** if you use previews):
 
@@ -161,9 +164,10 @@ Any host that serves the `frontend/` folder over **HTTPS** works the same way: r
 | Function | Body | Behavior |
 |----------|------|----------|
 | `verify_pin` | `{}` (PIN in header `X-Access-Pin`) | Returns `{ ok: true }` if PIN matches `ACCESS_PIN` |
-| `add_sentence` | `{ russian_text, tags?, voice_id?, skip_duplicate_check? }` | Translate → TTS → Storage → row; duplicate detection unless `skip_duplicate_check` |
-| `regenerate_audio` | `{ sentence_id, voice_id? }` | Regenerate MP3 for existing Japanese text |
-| `batch_regenerate_audio` | `{ sentence_ids: string[], voice_id? }` | Up to 8 per call; repeat with `remainder_ids` if returned |
+| `usage_snapshot` | `{}` | ElevenLabs character/subscription info when the API allows it; OpenAI billing is often unavailable for normal API keys |
+| `add_sentence` | `{ russian_text, tags?, voice_id?, openai_model?, elevenlabs_model_id?, skip_duplicate_check? }` | Translate → TTS → **append** clip to `audio_tracks` |
+| `regenerate_audio` | `{ sentence_id, voice_id?, elevenlabs_model_id? }` | Adds a **new** MP3 file (unique path) to existing sentence |
+| `batch_regenerate_audio` | `{ sentence_ids: string[], voice_id?, elevenlabs_model_id? }` | Up to 8 per call; repeat with `remainder_ids` if returned |
 
 Long batches: call `batch_regenerate_audio` in a loop until `remainder_ids` is empty (queue-friendly pattern for future job table).
 

@@ -3,20 +3,23 @@ import { requireAccessPin } from "../_shared/pin.ts";
 import { serviceClient } from "../_shared/auth.ts";
 import { translateRussianToJapanese } from "../_shared/translate.ts";
 import { synthesizeJapaneseMp3 } from "../_shared/tts.ts";
+import {
+  appendTrack,
+  newClipStoragePath,
+  type AudioTrackRow,
+} from "../_shared/tracks.ts";
 
 type AddBody = {
   russian_text: string;
   tags?: string[];
   voice_id?: string;
+  openai_model?: string;
+  elevenlabs_model_id?: string;
   /** If false (default), returns 409 when the same Russian text already exists. */
   skip_duplicate_check?: boolean;
 };
 
 const BUCKET = "sentence-audio";
-
-function storagePath(sentenceId: string): string {
-  return `${sentenceId}.mp3`;
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -53,6 +56,9 @@ Deno.serve(async (req) => {
       error: "No voice_id: set ELEVENLABS_VOICE_ID secret or pass voice_id",
     }, 400);
   }
+
+  const elevenModel = (body.elevenlabs_model_id ?? "").trim() || undefined;
+  const openaiModel = (body.openai_model ?? "").trim() || undefined;
 
   const admin = serviceClient();
 
@@ -91,7 +97,10 @@ Deno.serve(async (req) => {
   const sentenceId = inserted.id as string;
 
   try {
-    const { japanese, kana, model } = await translateRussianToJapanese(russian);
+    const { japanese, kana, model } = await translateRussianToJapanese(
+      russian,
+      openaiModel,
+    );
 
     const { error: trErr } = await admin
       .from("sentences")
@@ -107,13 +116,19 @@ Deno.serve(async (req) => {
     if (trErr) throw new Error(trErr.message);
 
     try {
-      const mp3 = await synthesizeJapaneseMp3(japanese, voiceId);
-      const path = storagePath(sentenceId);
+      const mp3 = await synthesizeJapaneseMp3(japanese, voiceId, elevenModel);
+      const path = newClipStoragePath(sentenceId);
+      const track: AudioTrackRow = {
+        path,
+        voice_id: voiceId,
+        tts_model_id: elevenModel,
+        created_at: new Date().toISOString(),
+      };
 
       const { error: upErr } = await admin.storage.from(BUCKET).upload(
         path,
         mp3,
-        { contentType: "audio/mpeg", upsert: true },
+        { contentType: "audio/mpeg", upsert: false },
       );
 
       if (upErr) {
@@ -123,6 +138,7 @@ Deno.serve(async (req) => {
             status: "failed_storage",
             error_message: upErr.message,
             audio_path: null,
+            audio_tracks: [],
           })
           .eq("id", sentenceId);
 
@@ -138,10 +154,13 @@ Deno.serve(async (req) => {
         });
       }
 
+      const tracks = appendTrack([], track);
+
       const { error: finErr } = await admin
         .from("sentences")
         .update({
           audio_path: path,
+          audio_tracks: tracks,
           status: "ready",
           error_message: null,
         })

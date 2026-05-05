@@ -87,14 +87,6 @@
             <option value="all">Все</option>
             <option value="fav">Только избранное</option>
           </select>
-        </div>
-        <div class="toolbar">
-          <select id="filter-status" class="input" style="flex: 1">
-            <option value="all">Все статусы</option>
-            <option value="ready">Готово (есть аудио)</option>
-            <option value="no_audio">Нет аудио / ошибка</option>
-            <option value="failed">Ошибка TTS/хранилища</option>
-          </select>
           <select id="sort-order" class="input" style="flex: 1">
             <option value="newest">Сначала новые</option>
             <option value="oldest">Сначала старые</option>
@@ -196,12 +188,20 @@
       </main>
 
       <main id="panel-settings" class="panel hidden" role="tabpanel">
-        <label class="label" for="setting-voice">ElevenLabs voice ID</label>
+        <label class="label" for="setting-openai-model">OpenAI — модель перевода</label>
+        <select id="setting-openai-model" class="input"></select>
+        <label class="label" for="setting-eleven-model">ElevenLabs — модель озвучки</label>
+        <select id="setting-eleven-model" class="input"></select>
+        <label class="label" for="setting-voice">ElevenLabs — voice ID</label>
         <input class="input" id="setting-voice" type="text" placeholder="Из Edge default или свой" />
         <p class="quick-status">
-          Ключ API ElevenLabs только на сервере (секреты функции). Здесь — только идентификатор голоса.
+          Ключи API только на сервере (секреты). Здесь задаются модели, голос и PIN.
         </p>
-        <button type="button" class="btn btn-primary" id="btn-save-voice">Сохранить в устройстве</button>
+        <button type="button" class="btn btn-primary" id="btn-save-voice">Сохранить настройки</button>
+        <hr style="margin: 1.25rem 0; border: none; border-top: 1px solid var(--border)" />
+        <p class="label">Квоты API</p>
+        <p class="quick-status" id="usage-info">Нажмите «Обновить», чтобы подтянуть лимиты (ElevenLabs обычно доступно; OpenAI — не всегда).</p>
+        <button type="button" class="btn btn-secondary" id="btn-refresh-usage">Обновить API-лимиты</button>
       </main>
 
       <nav class="tab-bar" role="tablist" aria-label="Разделы">

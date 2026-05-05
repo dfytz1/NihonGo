@@ -4,6 +4,8 @@ export const LS_THEME = "nihongo_theme";
 export const LS_PLAYER = "nihongo_player";
 /** PIN — localStorage; cleared only via «Выйти» */
 export const LS_ACCESS_PIN = "nihon_access_pin";
+export const LS_OPENAI_MODEL = "nihongo_openai_model";
+export const LS_ELEVEN_TTS_MODEL = "nihongo_eleven_tts_model";
 
 /** @type {import('@supabase/supabase-js').SupabaseClient | null} */
 export let supabase = null;

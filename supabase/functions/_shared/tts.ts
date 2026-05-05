@@ -3,11 +3,16 @@
 export async function synthesizeJapaneseMp3(
   text: string,
   voiceId: string,
+  modelIdOverride?: string,
 ): Promise<Uint8Array> {
   const key = Deno.env.get("ELEVENLABS_API_KEY");
   if (!key) throw new Error("ELEVENLABS_API_KEY is not configured on the server");
 
-  const modelId = Deno.env.get("ELEVENLABS_MODEL_ID") ?? "eleven_multilingual_v2";
+  const trimmed = modelIdOverride?.trim();
+  const modelId =
+    trimmed ||
+    Deno.env.get("ELEVENLABS_MODEL_ID")?.trim() ||
+    "eleven_multilingual_v2";
 
   const res = await fetch(
     `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
