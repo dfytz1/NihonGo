@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "Repo root for Vercel Git deploys; the PWA lives in frontend/.",
+  "scripts": {
+    "build": "cd frontend && npm run build"
+  }
+}
