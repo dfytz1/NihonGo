@@ -1,11 +1,9 @@
 /**
- * Basic offline shell + runtime cache for signed audio URLs (short TTL — best-effort).
- * Safari PWA: may evict aggressively; regenerate signed URLs when online.
+ * Offline shell + audio cache. JS uses network-first so new deploys don’t stick on stale app logic.
  */
-const CACHE_SHELL = "nihon-shell-v1";
+const CACHE_SHELL = "nihon-shell-v3";
 const CACHE_AUDIO = "nihon-audio-v1";
-
-const SHELL = ["./", "./index.html", "./css/styles.css", "./js/config.js", "./js/app.js", "./manifest.json"];
+const SHELL = ["./", "./index.html", "./css/styles.css", "./manifest.json"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -15,7 +13,17 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(
+        keys
+          .filter((k) => k !== CACHE_SHELL && k !== CACHE_AUDIO)
+          .map((k) => caches.delete(k)),
+      );
+      await self.clients.claim();
+    })(),
+  );
 });
 
 self.addEventListener("fetch", (event) => {
@@ -23,7 +31,25 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
 
   const url = new URL(req.url);
-  if (url.pathname.endsWith(".mp3") || url.search.includes("token=")) {
+  const path = url.pathname;
+
+  // Always try network first for app JS so PIN/config stay in sync with HTML after deploy.
+  if (path.endsWith(".js") || path.includes("/js/")) {
+    event.respondWith(
+      fetch(req, { cache: "no-cache" })
+        .then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE_SHELL).then((c) => c.put(req, copy)).catch(() => {});
+          }
+          return res;
+        })
+        .catch(() => caches.match(req)),
+    );
+    return;
+  }
+
+  if (path.endsWith(".mp3") || url.search.includes("token=")) {
     event.respondWith(
       caches.open(CACHE_AUDIO).then(async (cache) => {
         const hit = await cache.match(req);
@@ -47,7 +73,7 @@ self.addEventListener("fetch", (event) => {
         .then((res) => {
           if (req.mode === "navigate" && res.ok) {
             const copy = res.clone();
-            caches.open(CACHE_SHELL).then((c) => c.put(req, copy));
+            caches.open(CACHE_SHELL).then((c) => c.put(req, copy)).catch(() => {});
           }
           return res;
         })

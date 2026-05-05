@@ -2,7 +2,7 @@
   "name": "Nihon Sentences",
   "short_name": "Nihon",
   "description": "Personal Japanese sentence bank",
-  "start_url": ".",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#f6f5f2",
   "theme_color": "#2d6a4f",

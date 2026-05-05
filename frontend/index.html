@@ -19,12 +19,19 @@
       <div class="auth-box">
         <h1>Nihon Sentences</h1>
         <p>Частный банк фраз. PIN защищает перевод и озвучку на сервере; вход без почты.</p>
+        <p class="quick-status" style="margin-top: 0.35rem">
+          Закрепите в закладках <strong>один</strong> постоянный адрес сайта (например ваш <code>*.vercel.app</code> alias). Разные URL в браузере = разный сохранённый PIN.
+        </p>
         <label class="label" for="access-pin">PIN</label>
         <input
           class="input"
           id="access-pin"
           type="password"
-          autocomplete="current-password"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
           enterkeyhint="go"
           placeholder="••••••"
         />

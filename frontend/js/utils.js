@@ -196,16 +196,19 @@ export async function edgeFetch(fnName, body) {
     const msg = e instanceof Error ? e.message : String(e);
     if (/failed to fetch|load failed|networkerror/i.test(msg)) {
       throw new Error(
-        "Сеть: запрос к Edge Function не прошёл (часто CORS или блокировка). Обновите страницу и проверьте SUPABASE_URL в конфиге.",
+        "Сеть: запрос к Edge Function не прошёл (офлайн, блокировка или неверный SUPABASE_URL). Проверьте соединение.",
       );
     }
     throw e;
   }
+  const text = await res.text();
   let out = {};
-  try {
-    out = await res.json();
-  } catch {
-    /* ignore */
+  if (text) {
+    try {
+      out = JSON.parse(text);
+    } catch {
+      out = { error: text.slice(0, 500) };
+    }
   }
   return { res, payload: out };
 }

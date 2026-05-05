@@ -48,3 +48,8 @@ export function existingTracksFromRow(row: {
   }
   return cur;
 }
+
+/** Unique storage object per new clip (avoids CDN/browser reuse of the same URL). */
+export function newClipStoragePath(sentenceId: string): string {
+  return `${sentenceId}/${crypto.randomUUID()}.mp3`;
+}
