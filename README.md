@@ -89,19 +89,33 @@ There is **no** `INTERNAL_AUTH_*` or password grant. Rotating `ACCESS_PIN` inval
 
 ### Audio loudness (normalization)
 
-- **New clips**: TTS uploads use **`synthesizeJapaneseMp3ForStorage`** (`supabase/functions/_shared/tts.ts`), which runs ffmpeg **loudnorm** (`_shared/loudnorm.ts`) so levels match a speech-friendly target (≈ **-16 LUFS**).
-- **Hosted Supabase Edge** usually has **no ffmpeg** in PATH. The helper then **falls back to the raw MP3** (warns in logs). For hosted normalization you need a **custom Edge image** with ffmpeg, or normalize locally with the script below.
-- **Existing library**: one-time (or repeat) batch — install **ffmpeg** (with **libmp3lame**), then from the **repo root**:
+Clips are normalized to a **stable perceived level** (EBU **loudnorm**), with defaults tuned for **phones** (not as hot as broadcast **-16 LUFS**).
 
-  ```bash
-  npm install
-  export SUPABASE_URL=https://YOUR_REF.supabase.co
-  export SUPABASE_SERVICE_ROLE_KEY=eyJ...   # service_role — never commit or expose
-  DRY_RUN=1 npm run normalize-audio          # optional: print paths only
-  npm run normalize-audio                    # overwrites objects in `sentence-audio` in place
-  ```
+| Setting | Where | Default | Meaning |
+|--------|--------|---------|---------|
+| `AUDIO_LOUDNORM_I` | Edge secret or batch env | **-19** | Integrated loudness target (LUFS); lower = quieter (e.g. `-20`, `-21`). |
+| `AUDIO_LOUDNORM_TP` | same | **-1.5** | True-peak ceiling (dBTP). |
+| `AUDIO_LOUDNORM_LRA` | same | **11** | Loudness range (speech). |
+| `AUDIO_LOUDNORM_SINGLE_PASS` | Edge / batch (`SINGLE_PASS_LOUDNORM=1` in batch) | off | Faster, less consistent clip-to-clips; **two-pass** is the default. |
+| `DISABLE_AUDIO_LOUDNORM` | Edge secret `=1` | off | Upload raw ElevenLabs MP3 (no processing). |
 
-- **Opt out**: Edge secret **`DISABLE_AUDIO_LOUDNORM=1`** forces raw ElevenLabs bytes (no loudnorm step).
+**New uploads**
+
+- **Self-hosted / custom Edge image with ffmpeg**: every new clip runs the same **two-pass** loudnorm before Storage upload (set secrets above to taste).
+- **Hosted Supabase Edge** (no ffmpeg): new files are **raw TTS** unless you add ffmpeg to the runtime. That mix (batch-normalized + raw new) sounds uneven — **either** run the batch again after adding clips **or** move to an image that includes ffmpeg (see Supabase “Edge Functions” / Docker docs).
+
+**Re-normalize everything in Storage** (after changing targets or adding raw clips):
+
+```bash
+npm install
+export SUPABASE_URL=https://YOUR_REF.supabase.co
+export SUPABASE_SERVICE_ROLE_KEY=eyJ...
+# optional: AUDIO_LOUDNORM_I=-20 SINGLE_PASS_LOUDNORM=1
+DRY_RUN=1 npm run normalize-audio
+npm run normalize-audio
+```
+
+Set Edge secrets to the **same** `AUDIO_LOUDNORM_*` values if your functions use ffmpeg, so batch and upload paths match.
 
 ## 4. Setup steps
 
