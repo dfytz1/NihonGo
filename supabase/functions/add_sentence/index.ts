@@ -3,7 +3,7 @@ import { requireAccessPin } from "../_shared/pin.ts";
 import { serviceClient } from "../_shared/auth.ts";
 import { translateRussianToJapanese } from "../_shared/translate.ts";
 import { textForTts } from "../_shared/tts_text.ts";
-import { synthesizeJapaneseMp3 } from "../_shared/tts.ts";
+import { synthesizeJapaneseMp3ForStorage } from "../_shared/tts.ts";
 import { pickTtsVoiceId } from "../_shared/voice_pick.ts";
 import {
   appendTrack,
@@ -125,7 +125,11 @@ Deno.serve(async (req) => {
         );
       }
       const ttsLine = textForTts(japanese, kana);
-      const mp3 = await synthesizeJapaneseMp3(ttsLine, voiceId, elevenModel);
+      const mp3 = await synthesizeJapaneseMp3ForStorage(
+        ttsLine,
+        voiceId,
+        elevenModel,
+      );
       const path = newClipStoragePath(sentenceId);
       const track: AudioTrackRow = {
         path,

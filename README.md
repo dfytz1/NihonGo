@@ -28,6 +28,8 @@ NihonGoSentences/
 │       ├── add_sentence/
 │       ├── regenerate_audio/
 │       └── batch_regenerate_audio/
+├── scripts/
+│   └── normalize-audio-storage.mjs   # batch loudnorm for existing MP3s (needs ffmpeg)
 └── README.md
 ```
 
@@ -84,6 +86,22 @@ The shared helper `supabase/functions/_shared/auth.ts` reads the admin client fr
 3. The app sends the PIN as **`access_pin`** in the JSON body to Edge Functions (header `X-Access-Pin` still supported). This avoids fragile CORS preflights on some browsers.
 
 There is **no** `INTERNAL_AUTH_*` or password grant. Rotating `ACCESS_PIN` invalidates unlock until you enter the new PIN.
+
+### Audio loudness (normalization)
+
+- **New clips**: TTS uploads use **`synthesizeJapaneseMp3ForStorage`** (`supabase/functions/_shared/tts.ts`), which runs ffmpeg **loudnorm** (`_shared/loudnorm.ts`) so levels match a speech-friendly target (≈ **-16 LUFS**).
+- **Hosted Supabase Edge** usually has **no ffmpeg** in PATH. The helper then **falls back to the raw MP3** (warns in logs). For hosted normalization you need a **custom Edge image** with ffmpeg, or normalize locally with the script below.
+- **Existing library**: one-time (or repeat) batch — install **ffmpeg** (with **libmp3lame**), then from the **repo root**:
+
+  ```bash
+  npm install
+  export SUPABASE_URL=https://YOUR_REF.supabase.co
+  export SUPABASE_SERVICE_ROLE_KEY=eyJ...   # service_role — never commit or expose
+  DRY_RUN=1 npm run normalize-audio          # optional: print paths only
+  npm run normalize-audio                    # overwrites objects in `sentence-audio` in place
+  ```
+
+- **Opt out**: Edge secret **`DISABLE_AUDIO_LOUDNORM=1`** forces raw ElevenLabs bytes (no loudnorm step).
 
 ## 4. Setup steps
 

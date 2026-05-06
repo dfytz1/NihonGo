@@ -1,5 +1,7 @@
 // ElevenLabs text-to-speech — API key from Edge Function secrets only (ELEVENLABS_API_KEY).
 
+import { normalizeMp3ForStorage } from "./loudnorm.ts";
+
 /** Per-call jitter so re-generating the same line does not sound identical (new file + varied prosody). */
 function voiceSettingsForModel(modelId: string) {
   const id = modelId.toLowerCase();
@@ -59,4 +61,14 @@ export async function synthesizeJapaneseMp3(
   }
 
   return new Uint8Array(await res.arrayBuffer());
+}
+
+/** TTS bytes adjusted for consistent perceived loudness before upload (see loudnorm.ts). */
+export async function synthesizeJapaneseMp3ForStorage(
+  text: string,
+  voiceId: string,
+  modelIdOverride?: string,
+): Promise<Uint8Array> {
+  const raw = await synthesizeJapaneseMp3(text, voiceId, modelIdOverride);
+  return await normalizeMp3ForStorage(raw);
 }

@@ -1,6 +1,6 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { requireAccessPin } from "../_shared/pin.ts";
-import { synthesizeJapaneseMp3 } from "../_shared/tts.ts";
+import { synthesizeJapaneseMp3ForStorage } from "../_shared/tts.ts";
 
 /** Short line so previews stay cheap; all samples are real Japanese TTS. */
 const SAMPLE_JP = "こんにちは。これは日本語のサンプルです。";
@@ -44,7 +44,7 @@ Deno.serve(async (req) => {
   const modelOpt = model || undefined;
 
   try {
-    const mp3 = await synthesizeJapaneseMp3(
+    const mp3 = await synthesizeJapaneseMp3ForStorage(
       SAMPLE_JP,
       voiceId,
       modelOpt,

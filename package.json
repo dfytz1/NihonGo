@@ -2,6 +2,10 @@
   "private": true,
   "description": "Repo root for Vercel Git deploys; the PWA lives in frontend/.",
   "scripts": {
-    "build": "cd frontend && npm run build"
+    "build": "cd frontend && npm run build",
+    "normalize-audio": "node scripts/normalize-audio-storage.mjs"
+  },
+  "devDependencies": {
+    "@supabase/supabase-js": "^2.49.1"
   }
 }
