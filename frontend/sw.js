@@ -1,8 +1,9 @@
 /**
- * Offline shell + audio cache. JS uses network-first so new deploys don’t stick on stale app logic.
+ * Offline shell + audio cache. App JS is network-first. MP3 is also network-first
+ * so replaced Storage objects (same URL) are not stuck behind an old Service Worker cache.
  */
-const CACHE_SHELL = "nihon-shell-v11";
-const CACHE_AUDIO = "nihon-audio-v1";
+const CACHE_SHELL = "nihon-shell-v12";
+const CACHE_AUDIO = "nihon-audio-v2";
 const SHELL = ["./", "./index.html", "./css/styles.css", "./manifest.json"];
 
 self.addEventListener("install", (event) => {
@@ -49,17 +50,21 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // MP3: network-first. Storage URLs stay the same when file is replaced in-place
+  // (e.g. loudness normalize), so cache-first would forever replay an old quiet clip.
   if (path.endsWith(".mp3") || url.search.includes("token=")) {
     event.respondWith(
       caches.open(CACHE_AUDIO).then(async (cache) => {
-        const hit = await cache.match(req);
-        if (hit) return hit;
         try {
-          const res = await fetch(req);
-          if (res.ok) cache.put(req, res.clone());
+          const res = await fetch(req, { cache: "no-store" });
+          if (res.ok) {
+            cache.put(req, res.clone()).catch(() => {});
+          }
           return res;
-        } catch (e) {
-          return hit || Promise.reject(e);
+        } catch {
+          const hit = await cache.match(req);
+          if (hit) return hit;
+          return new Response("", { status: 503 });
         }
       }),
     );

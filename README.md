@@ -107,6 +107,8 @@ There is **no** `INTERNAL_AUTH_*` or password grant. Rotating `ACCESS_PIN` inval
 
 - **Opt out**: Edge secret **`DISABLE_AUDIO_LOUDNORM=1`** forces raw ElevenLabs bytes (no loudnorm step).
 
+**Quiet clips after `npm run normalize-audio`:** the PWA Service Worker used to cache **.mp3 cache-first**, so an old file stayed even after Storage was overwritten (same public URL). Current **`sw.js`** uses **network-first for audio** and bumps the audio cache name when needed — reload the app so the new Service Worker installs.
+
 ## 4. Setup steps
 
 1. Create a Supabase project.
