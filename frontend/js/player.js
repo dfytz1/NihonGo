@@ -6,20 +6,71 @@ import {
   showToast,
 } from "./utils.js";
 
-/** @type {HTMLAudioElement | null} */
+/** Two elements: while one plays, the other preloads the next URL so `play()` can run inside `ended` (iOS). */
+/** @type {[HTMLAudioElement, HTMLAudioElement] | null} */
+let audioPool = null;
+/** Main element for one-shot `playClip` (preview / single card). */
 let audioEl = null;
-/** Resolves the current `playClip` promise when the clip ends or is skipped. */
+/** Which pool element is driving list playback, if any. */
+let queueActiveEl = /** @type {HTMLAudioElement | null} */ (null);
 let skipClipResolve = null;
 let mediaSessionHandlersWired = false;
-/** Bumped on skip/stop so in-flight «chain» callbacks exit without advancing. */
 let playbackGeneration = 0;
-/** Removes `ended`/`error` listeners from the active queue chain. */
 let abortActiveChain = /** @type {(() => void) | null} */ (null);
-/** Status line element for the queue driver (set when list playback starts). */
 let loopStatusEl = /** @type {HTMLElement | null} */ (null);
+/** Filled while the last clip of a sentence plays; used to continue the sync play chain into the next sentence. */
+let prefetchedSentenceBundle =
+  /** @type {{ urls: string[]; meta: { title: string; artist: string; album: string }; repeatLabel: number } | null} */ (
+    null
+  );
 
 function bumpPlaybackGeneration() {
   playbackGeneration++;
+}
+
+function ensurePool() {
+  if (!audioPool) {
+    const mk = () => {
+      const a = new Audio();
+      a.preload = "auto";
+      a.setAttribute("playsinline", "");
+      a.setAttribute("webkit-playsinline", "true");
+      a.muted = false;
+      a.defaultMuted = false;
+      a.volume = 1;
+      a.addEventListener("play", () => {
+        if ("mediaSession" in navigator) {
+          try {
+            navigator.mediaSession.playbackState = "playing";
+          } catch {
+            /* */
+          }
+        }
+      });
+      a.addEventListener("pause", () => {
+        if (
+          "mediaSession" in navigator &&
+          a &&
+          !a.ended &&
+          (queueActiveEl === a || (!queueActiveEl && audioEl === a))
+        ) {
+          try {
+            navigator.mediaSession.playbackState = "paused";
+          } catch {
+            /* */
+          }
+        }
+      });
+      return a;
+    };
+    audioPool = [mk(), mk()];
+    audioEl = audioPool[0];
+  }
+  return audioPool;
+}
+
+function getControlElement() {
+  return queueActiveEl || audioEl;
 }
 
 function ensureMediaSessionHandlers() {
@@ -27,10 +78,11 @@ function ensureMediaSessionHandlers() {
   mediaSessionHandlersWired = true;
   try {
     navigator.mediaSession.setActionHandler("play", () => {
-      if (audioEl?.paused) void audioEl.play();
+      const el = getControlElement();
+      if (el?.paused) void el.play();
     });
     navigator.mediaSession.setActionHandler("pause", () => {
-      audioEl?.pause();
+      getControlElement()?.pause();
     });
     navigator.mediaSession.setActionHandler("previoustrack", () => {
       playerPrev();
@@ -42,11 +94,10 @@ function ensureMediaSessionHandlers() {
       stopPlayer();
     });
   } catch {
-    /* Some platforms omit certain actions */
+    /* */
   }
 }
 
-/** @param {{ title?: string; artist?: string; album?: string } | null | undefined} meta */
 function setMediaSessionMetadata(meta) {
   if (!("mediaSession" in navigator)) return;
   try {
@@ -80,42 +131,8 @@ export function clearMediaSessionPlayback() {
 }
 
 function wireAudio() {
-  if (!audioEl) {
-    audioEl = new Audio();
-    audioEl.preload = "auto";
-    audioEl.setAttribute("playsinline", "");
-    audioEl.setAttribute("webkit-playsinline", "true");
-    audioEl.addEventListener("play", () => {
-      if ("mediaSession" in navigator) {
-        try {
-          navigator.mediaSession.playbackState = "playing";
-        } catch {
-          /* */
-        }
-      }
-    });
-    audioEl.addEventListener("pause", () => {
-      if ("mediaSession" in navigator && audioEl && !audioEl.ended) {
-        try {
-          navigator.mediaSession.playbackState = "paused";
-        } catch {
-          /* */
-        }
-      }
-    });
-  }
+  ensurePool();
   ensureMediaSessionHandlers();
-}
-
-if (typeof document !== "undefined") {
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState !== "visible" || !player.running || !audioEl) {
-      return;
-    }
-    if (audioEl.paused && !audioEl.ended && audioEl.src) {
-      void audioEl.play().catch(() => {});
-    }
-  });
 }
 
 function applyPlaybackRate(el, playbackRate) {
@@ -128,14 +145,18 @@ function applyPlaybackRate(el, playbackRate) {
         .preservesPitch = true;
     }
   } catch {
-    /* Safari may throw for extreme values */
+    /* */
   }
 }
 
-/**
- * One-off clip (card preview, single-card play). Optional `meta`; omit to leave Media Session unchanged.
- * @param {{ endOnPlayFailure?: boolean }} [options] If `endOnPlayFailure` is false, a rejected `play()` does not resolve early (queue-style).
- */
+function pauseAndClearPool() {
+  if (!audioPool) return;
+  for (const a of audioPool) {
+    a.pause();
+    a.removeAttribute("src");
+  }
+}
+
 export function playClip(
   url,
   playbackRate,
@@ -143,10 +164,17 @@ export function playClip(
   options = {},
 ) {
   wireAudio();
+  const pool = ensurePool();
   const { endOnPlayFailure = true } = options;
+  queueActiveEl = null;
+  prefetchedSentenceBundle = null;
+  pool[1].pause();
+  pool[1].removeAttribute("src");
+  audioEl = pool[0];
+
   return new Promise((resolve) => {
     skipClipResolve = resolve;
-    const a = audioEl;
+    const a = pool[0];
     const rate = Number(playbackRate) || 1;
 
     const finish = () => {
@@ -187,58 +215,242 @@ export function playClip(
   });
 }
 
-/** Chained clips for lock screen / background: next `src` + `play()` from `ended` synchronously (iOS-friendly). */
-function playUrlListChained(
-  urls,
-  idx,
-  meta,
-  stEl,
-  repeatLabel,
-  onAllDone,
-) {
-  wireAudio();
-  const a = audioEl;
+function clipMetaForSentence(s) {
+  return {
+    title: s.japanese_text || s.kana || "—",
+    artist: "Nihon Sentences",
+    album: (s.russian_text || "").slice(0, 160),
+  };
+}
+
+/** @param {number} repeat */
+function collectPathsForSentence(s, repeat) {
+  const paths = [];
+  for (let r = 0; r < repeat; r++) {
+    const p = pickRandomAudioPath(s);
+    if (!p) break;
+    paths.push(p);
+  }
+  return paths;
+}
+
+function highlightPlaying(id) {
+  document.querySelectorAll(".sentence-card.is-playing").forEach((el) => {
+    el.classList.remove("is-playing");
+  });
+  const card = document.getElementById(`card-${id}`);
+  card?.classList.add("is-playing");
+  card?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function refreshNowPlaying(s) {
+  highlightPlaying(s.id);
+  const npj = document.getElementById("np-jp");
+  const npk = document.getElementById("np-kana");
+  const npr = document.getElementById("np-ru");
+  if (npj) npj.textContent = s.japanese_text || "—";
+  if (npk) npk.textContent = s.kana || "";
+  if (npr) npr.textContent = s.russian_text || "";
+}
+
+/**
+ * Ping-pong two Audio nodes; bridge into the next sentence via `prefetchedSentenceBundle` when pause is 0.
+ */
+function playUrlListChained(initialUrls, initialMeta, stEl, initialRepeatLabel, onAllDone) {
+  const pool = ensurePool();
+  const [el0, el1] = pool;
+  const genLocal = playbackGeneration;
+  const state = {
+    urls: /** @type {string[]} */ (initialUrls),
+    meta: initialMeta,
+    repeatLabel: initialRepeatLabel,
+  };
+  let i = 0;
+  let slot = 0;
+
+  function rate() {
+    return Number(document.getElementById("pl-speed")?.value || 1);
+  }
+
+  function updateUi() {
+    if (stEl) {
+      stEl.textContent =
+        state.repeatLabel > 1
+          ? `Играет (${i + 1}/${state.repeatLabel}, случайная дорожка)…`
+          : "Играет (случайная дорожка)…";
+    }
+    setMediaSessionMetadata(state.meta);
+  }
+
+  function preload(standby, url) {
+    if (!url) {
+      standby.pause();
+      standby.removeAttribute("src");
+      return;
+    }
+    standby.pause();
+    standby.src = url;
+    standby.load();
+  }
+
+  function finishChain() {
+    abortActiveChain = null;
+    queueActiveEl = null;
+    audioEl = pool[0];
+  }
+
+  function prefetchNextSentenceOnto(standby) {
+    const nextIdx = player.index + 1;
+    if (nextIdx >= player.queue.length) {
+      preload(standby, null);
+      return;
+    }
+    const s2 = player.queue[nextIdx];
+    const rep = Number(document.getElementById("pl-repeat")?.value || 1);
+    const paths = collectPathsForSentence(s2, rep);
+    if (!paths.length) {
+      preload(standby, null);
+      return;
+    }
+    const g = genLocal;
+    Promise.all(paths.map((p) => getAudioUrl(p))).then((nextUrls) => {
+      if (g !== playbackGeneration || !player.running) return;
+      if (nextUrls.some((u) => !u)) {
+        prefetchedSentenceBundle = null;
+        preload(standby, null);
+        return;
+      }
+      prefetchedSentenceBundle = {
+        urls: nextUrls,
+        meta: clipMetaForSentence(s2),
+        repeatLabel: paths.length,
+      };
+      preload(standby, nextUrls[0]);
+    });
+  }
+
+  function wireActive(active, standby) {
+    const onPlaying = () => {
+      if (genLocal !== playbackGeneration || !player.running) return;
+      if (state.urls[i + 1]) {
+        preload(standby, state.urls[i + 1]);
+      } else {
+        prefetchNextSentenceOnto(standby);
+      }
+    };
+    active.addEventListener("playing", onPlaying, { once: true });
+
+    const onEnded = () => {
+      active.removeEventListener("ended", onEnded);
+      active.removeEventListener("error", onEndOrErr);
+      active.removeEventListener("playing", onPlaying);
+      if (genLocal !== playbackGeneration || !player.running) return;
+
+      i += 1;
+      if (i >= state.urls.length) {
+        if (player.seekDelta !== 0) {
+          player.index = Math.max(0, player.index + player.seekDelta);
+          player.seekDelta = 0;
+        } else {
+          player.index++;
+        }
+
+        const pauseBetween = Number(
+          document.getElementById("pl-pause")?.value || 0,
+        );
+        const bundle = prefetchedSentenceBundle;
+        prefetchedSentenceBundle = null;
+
+        if (
+          bundle &&
+          bundle.urls.length &&
+          pauseBetween <= 0 &&
+          player.running &&
+          genLocal === playbackGeneration
+        ) {
+          slot = 1 - slot;
+          const nextActive = pool[slot];
+          const nextStandby = pool[1 - slot];
+          state.urls = bundle.urls;
+          state.meta = bundle.meta;
+          state.repeatLabel = bundle.repeatLabel;
+          i = 0;
+
+          const sCur = player.queue[player.index];
+          if (sCur) refreshNowPlaying(sCur);
+
+          queueActiveEl = nextActive;
+          audioEl = nextActive;
+          updateUi();
+          wireActive(nextActive, nextStandby);
+          applyPlaybackRate(nextActive, rate());
+          void nextActive.play().catch(() => {
+            try {
+              if ("mediaSession" in navigator) {
+                navigator.mediaSession.playbackState = "paused";
+              }
+            } catch {
+              /* */
+            }
+          });
+          return;
+        }
+
+        finishChain();
+        onAllDone();
+        return;
+      }
+
+      slot = 1 - slot;
+      const nextActive = pool[slot];
+      const nextStandby = pool[1 - slot];
+
+      queueActiveEl = nextActive;
+      audioEl = nextActive;
+      updateUi();
+      wireActive(nextActive, nextStandby);
+      applyPlaybackRate(nextActive, rate());
+      void nextActive.play().catch(() => {
+        try {
+          if ("mediaSession" in navigator) {
+            navigator.mediaSession.playbackState = "paused";
+          }
+        } catch {
+          /* */
+        }
+      });
+    };
+    const onEndOrErr = onEnded;
+
+    active.addEventListener("ended", onEnded);
+    active.addEventListener("error", onEndOrErr, { once: true });
+
+    abortActiveChain = () => {
+      active.removeEventListener("ended", onEnded);
+      active.removeEventListener("error", onEndOrErr);
+      active.removeEventListener("playing", onPlaying);
+    };
+  }
+
   if (!player.running) return;
 
-  if (idx >= urls.length) {
-    abortActiveChain = null;
-    onAllDone();
-    return;
-  }
+  refreshNowPlaying(player.queue[player.index]);
 
-  const gen = playbackGeneration;
-  const url = urls[idx];
-  const rate = Number(document.getElementById("pl-speed")?.value || 1);
+  el0.pause();
+  el1.pause();
+  el1.removeAttribute("src");
+  el0.src = state.urls[0];
+  el0.load();
 
-  if (stEl) {
-    stEl.textContent =
-      repeatLabel > 1
-        ? `Играет (${idx + 1}/${repeatLabel}, случайная дорожка)…`
-        : "Играет (случайная дорожка)…";
-  }
-
-  setMediaSessionMetadata(meta);
-
-  const onEnded = () => {
-    a.removeEventListener("ended", onEnded);
-    a.removeEventListener("error", onError);
-    if (gen !== playbackGeneration || !player.running) return;
-    playUrlListChained(urls, idx + 1, meta, stEl, repeatLabel, onAllDone);
-  };
-  const onError = onEnded;
-
-  a.addEventListener("ended", onEnded);
-  a.addEventListener("error", onError, { once: true });
-
-  abortActiveChain = () => {
-    a.removeEventListener("ended", onEnded);
-    a.removeEventListener("error", onError);
-  };
+  queueActiveEl = el0;
+  audioEl = el0;
+  updateUi();
+  wireActive(el0, el1);
 
   const start = () => {
-    if (gen !== playbackGeneration || !player.running) return;
-    applyPlaybackRate(a, rate);
-    void a.play().catch(() => {
+    if (genLocal !== playbackGeneration || !player.running) return;
+    applyPlaybackRate(el0, rate());
+    void el0.play().catch(() => {
       try {
         if ("mediaSession" in navigator) {
           navigator.mediaSession.playbackState = "paused";
@@ -249,24 +461,20 @@ function playUrlListChained(
     });
   };
 
-  a.pause();
-  a.src = url;
-  a.load();
-  if (a.readyState >= HTMLMediaElement.HAVE_METADATA) {
+  if (el0.readyState >= HTMLMediaElement.HAVE_METADATA) {
     start();
   } else {
-    a.addEventListener("loadedmetadata", start, { once: true });
+    el0.addEventListener("loadedmetadata", start, { once: true });
   }
 }
 
-/** While a clip is playing, apply speed from the «Скорость» control. */
 export function syncPlaybackRateFromUi() {
-  if (!audioEl || audioEl.paused || audioEl.ended) return;
+  const el = getControlElement();
+  if (!el || el.paused || el.ended) return;
   const sp = Number(document.getElementById("pl-speed")?.value || 1);
-  applyPlaybackRate(audioEl, sp);
+  applyPlaybackRate(el, sp);
 }
 
-/** After a chained skip, continue the queue from the updated index. */
 function resumeQueueAfterSkip() {
   if (!player.running) return;
   if (player.seekDelta !== 0) {
@@ -279,22 +487,20 @@ function resumeQueueAfterSkip() {
 }
 
 export function skipCurrentClip() {
-  const hadChain = !!abortActiveChain;
   const fn = skipClipResolve;
 
   bumpPlaybackGeneration();
   abortActiveChain?.();
   abortActiveChain = null;
+  queueActiveEl = null;
+  prefetchedSentenceBundle = null;
 
-  if (audioEl) {
-    audioEl.pause();
-    audioEl.removeAttribute("src");
-  }
+  pauseAndClearPool();
 
   skipClipResolve = null;
   if (fn) fn();
 
-  if (player.running && hadChain && !fn) {
+  if (player.running && !fn) {
     queueMicrotask(() => resumeQueueAfterSkip());
   }
 }
@@ -305,10 +511,9 @@ export function stopPlayer() {
   bumpPlaybackGeneration();
   abortActiveChain?.();
   abortActiveChain = null;
-  if (audioEl) {
-    audioEl.pause();
-    audioEl.removeAttribute("src");
-  }
+  queueActiveEl = null;
+  prefetchedSentenceBundle = null;
+  pauseAndClearPool();
   const fn = skipClipResolve;
   skipClipResolve = null;
   if (fn) fn();
@@ -328,29 +533,29 @@ export function playerPrev() {
   skipCurrentClip();
 }
 
-function highlightPlaying(id) {
-  document.querySelectorAll(".sentence-card.is-playing").forEach((el) => {
-    el.classList.remove("is-playing");
-  });
-  const card = document.getElementById(`card-${id}`);
-  card?.classList.add("is-playing");
-  card?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-}
-
-function clipMetaForSentence(s) {
-  return {
-    title: s.japanese_text || s.kana || "—",
-    artist: "Nihon Sentences",
-    album: (s.russian_text || "").slice(0, 160),
-  };
-}
-
 function endPlayerLoopUi() {
   document.querySelectorAll(".sentence-card.is-playing").forEach((el) => {
     el.classList.remove("is-playing");
   });
   clearMediaSessionPlayback();
   loopStatusEl = null;
+}
+
+function finishSentenceAndContinue(genFetch) {
+  if (!player.running) return;
+  if (playbackGeneration !== genFetch) return;
+  const pauseBetween = Number(
+    document.getElementById("pl-pause")?.value || 0,
+  );
+  if (pauseBetween <= 0) {
+    playFromCurrentIndex();
+  } else {
+    setTimeout(() => {
+      if (player.running && playbackGeneration === genFetch) {
+        playFromCurrentIndex();
+      }
+    }, pauseBetween);
+  }
 }
 
 function playFromCurrentIndex() {
@@ -381,13 +586,7 @@ function playFromCurrentIndex() {
   const s = player.queue[player.index];
   const repeat = Number(document.getElementById("pl-repeat")?.value || 1);
 
-  highlightPlaying(s.id);
-  const npj = document.getElementById("np-jp");
-  const npk = document.getElementById("np-kana");
-  const npr = document.getElementById("np-ru");
-  if (npj) npj.textContent = s.japanese_text || "—";
-  if (npk) npk.textContent = s.kana || "";
-  if (npr) npr.textContent = s.russian_text || "";
+  refreshNowPlaying(s);
 
   if (!pickRandomAudioPath(s)) {
     player.index++;
@@ -395,12 +594,7 @@ function playFromCurrentIndex() {
     return;
   }
 
-  const paths = [];
-  for (let r = 0; r < repeat; r++) {
-    const p = pickRandomAudioPath(s);
-    if (!p) break;
-    paths.push(p);
-  }
+  const paths = collectPathsForSentence(s, repeat);
   if (!paths.length) {
     player.index++;
     playFromCurrentIndex();
@@ -416,35 +610,19 @@ function playFromCurrentIndex() {
       return;
     }
     const meta = clipMetaForSentence(s);
-    playUrlListChained(
-      urls,
-      0,
-      meta,
-      stEl,
-      paths.length,
-      () => {
-        if (!player.running) return;
-        if (playbackGeneration !== genFetch) return;
-        if (player.seekDelta !== 0) {
-          player.index = Math.max(0, player.index + player.seekDelta);
-          player.seekDelta = 0;
-        } else {
-          player.index++;
-        }
-        const pauseBetween = Number(
-          document.getElementById("pl-pause")?.value || 0,
-        );
-        if (pauseBetween <= 0) {
-          playFromCurrentIndex();
-        } else {
-          setTimeout(() => {
-            if (player.running && playbackGeneration === genFetch) {
-              playFromCurrentIndex();
-            }
-          }, pauseBetween);
-        }
-      },
-    );
+    playUrlListChained(urls, meta, stEl, paths.length, () => {
+      finishSentenceAndContinue(genFetch);
+    });
+  });
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || !player.running) return;
+    const el = getControlElement();
+    if (el && el.paused && !el.ended && el.src) {
+      void el.play().catch(() => {});
+    }
   });
 }
 
