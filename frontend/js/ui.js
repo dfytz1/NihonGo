@@ -29,9 +29,18 @@ import {
   sleep,
   statusClass,
   statusLabel,
+  LOUDNORM_HINT_RU,
 } from "./utils.js";
 
 let voicesCatalogPrimed = false;
+
+function toastAfterRegen(payload, okLabel) {
+  if (payload?.loudnorm_applied === false) {
+    showToast(`${okLabel}. ${LOUDNORM_HINT_RU}`);
+  } else {
+    showToast(okLabel);
+  }
+}
 
 export function refreshTagFilterOptions() {
   const sel = document.getElementById("filter-tag");
@@ -204,9 +213,9 @@ export function renderList() {
       if (!id) return;
       try {
         showToast("Генерация аудио…");
-        await invokeRegen(id);
+        const payload = await invokeRegen(id);
         await loadSentences();
-        showToast("Готово");
+        toastAfterRegen(payload, "Готово");
       } catch (e) {
         showToast(String(e.message || e));
         await loadSentences();
@@ -219,9 +228,9 @@ export function renderList() {
       if (!id) return;
       try {
         showToast("Новая дорожка…");
-        await invokeRegen(id);
+        const payload = await invokeRegen(id);
         await loadSentences();
-        showToast("Готово");
+        toastAfterRegen(payload, "Готово");
       } catch (e) {
         showToast(String(e.message || e));
         await loadSentences();
@@ -341,13 +350,17 @@ export async function invokeBatchRegen(ids) {
   let remaining = [...ids];
   const elevenlabs_model_id = getElevenlabsModelId();
   const voicePart = buildTtsVoiceBody();
+  /** @type {Record<string, unknown>|null} */
+  let lastPayload = null;
   while (remaining.length) {
     const body = { sentence_ids: remaining, elevenlabs_model_id, ...voicePart };
     const { res, payload } = await edgeFetch("batch_regenerate_audio", body);
     if (!res.ok) throw new Error(payload.error || res.statusText);
+    lastPayload = payload;
     remaining = payload.remainder_ids || [];
     if (!remaining.length) break;
   }
+  return lastPayload;
 }
 
 export function openEdit(id) {
@@ -511,9 +524,9 @@ export function openEdit(id) {
     btnSave.click();
     try {
       showToast("Генерация аудио…");
-      await invokeRegen(id);
+      const payload = await invokeRegen(id);
       await loadSentences();
-      showToast("Аудио обновлено");
+      toastAfterRegen(payload, "Аудио обновлено");
     } catch (e) {
       showToast(String(e.message || e));
       await loadSentences();
@@ -572,7 +585,10 @@ export async function quickAdd() {
         ? `${payload.warning}\n${det}`
         : payload.warning;
     } else {
-      st.textContent = "Сохранено";
+      st.textContent =
+        payload.loudnorm_applied === false
+          ? `Сохранено. ${LOUDNORM_HINT_RU}`
+          : "Сохранено";
     }
 
     ta.value = "";

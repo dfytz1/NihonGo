@@ -106,7 +106,11 @@ Deno.serve(async (req) => {
 
     let path = "";
     try {
-      const mp3 = await synthesizeJapaneseMp3ForStorage(jp, voiceId, elevenModel);
+      const { mp3, loudnorm_applied } = await synthesizeJapaneseMp3ForStorage(
+        jp,
+        voiceId,
+        elevenModel,
+      );
       path = newClipStoragePath(sentenceId);
       const track: AudioTrackRow = {
         path,
@@ -180,7 +184,7 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      results.push({ id: sentenceId, ok: true });
+      results.push({ id: sentenceId, ok: true, loudnorm_applied });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       if (path) {
@@ -197,9 +201,14 @@ Deno.serve(async (req) => {
     }
   }
 
+  const loudnorm_skipped_any = results.some(
+    (r) => r.ok && "loudnorm_applied" in r && r.loudnorm_applied === false,
+  );
+
   return jsonResponse({
     results,
     remainder_ids: remainder,
+    loudnorm_skipped_any,
     note: remainder.length
       ? `Only ${MAX_PER_CALL} processed per call; POST again with remainder_ids.`
       : undefined,

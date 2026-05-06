@@ -63,12 +63,13 @@ export async function synthesizeJapaneseMp3(
   return new Uint8Array(await res.arrayBuffer());
 }
 
-/** TTS bytes adjusted for consistent perceived loudness before upload (see loudnorm.ts). */
+/** TTS bytes for upload; `loudnorm_applied` is false when ffmpeg is unavailable (typical on hosted Edge). */
 export async function synthesizeJapaneseMp3ForStorage(
   text: string,
   voiceId: string,
   modelIdOverride?: string,
-): Promise<Uint8Array> {
+): Promise<{ mp3: Uint8Array; loudnorm_applied: boolean }> {
   const raw = await synthesizeJapaneseMp3(text, voiceId, modelIdOverride);
-  return await normalizeMp3ForStorage(raw);
+  const { bytes, loudnorm_applied } = await normalizeMp3ForStorage(raw);
+  return { mp3: bytes, loudnorm_applied };
 }

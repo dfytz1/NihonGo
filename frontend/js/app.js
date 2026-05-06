@@ -30,6 +30,7 @@ import {
   getAccessPin,
   setAccessPin,
   edgeFetch,
+  LOUDNORM_HINT_RU,
 } from "./utils.js";
 import {
   bulkImport,
@@ -394,8 +395,12 @@ async function main() {
       }
       showToast("Пакетная озвучка…");
       try {
-        await invokeBatchRegen(ids);
-        showToast("Готово");
+        const batchPayload = await invokeBatchRegen(ids);
+        if (batchPayload?.loudnorm_skipped_any) {
+          showToast(`Готово. ${LOUDNORM_HINT_RU}`);
+        } else {
+          showToast("Готово");
+        }
         await loadSentences();
       } catch (e) {
         showToast(String(e.message || e));

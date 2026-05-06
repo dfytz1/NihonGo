@@ -125,7 +125,7 @@ Deno.serve(async (req) => {
         );
       }
       const ttsLine = textForTts(japanese, kana);
-      const mp3 = await synthesizeJapaneseMp3ForStorage(
+      const { mp3, loudnorm_applied } = await synthesizeJapaneseMp3ForStorage(
         ttsLine,
         voiceId,
         elevenModel,
@@ -213,7 +213,7 @@ Deno.serve(async (req) => {
       .eq("id", sentenceId)
       .single();
 
-    return jsonResponse({ sentence: final, success: true });
+    return jsonResponse({ sentence: final, success: true, loudnorm_applied });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     await admin

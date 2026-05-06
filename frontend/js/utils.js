@@ -122,6 +122,10 @@ export function showToast(msg) {
   setToastTimer(setTimeout(() => t.classList.add("hidden"), 3200));
 }
 
+/** Hosted Supabase Edge usually has no ffmpeg — new clips stay quiet until `npm run normalize-audio`. */
+export const LOUDNORM_HINT_RU =
+  "Громкость не выровнена на сервере. На компьютере, в папке проекта: npm run normalize-audio";
+
 export function setTheme(dark) {
   document.documentElement.setAttribute(
     "data-theme",

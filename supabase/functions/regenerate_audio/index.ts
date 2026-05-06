@@ -94,7 +94,11 @@ Deno.serve(async (req) => {
 
   let path = "";
   try {
-    const mp3 = await synthesizeJapaneseMp3ForStorage(jp, voiceId, elevenModel);
+    const { mp3, loudnorm_applied } = await synthesizeJapaneseMp3ForStorage(
+      jp,
+      voiceId,
+      elevenModel,
+    );
     path = newClipStoragePath(sentenceId);
     const track: AudioTrackRow = {
       path,
@@ -185,7 +189,7 @@ Deno.serve(async (req) => {
       .eq("id", sentenceId)
       .single();
 
-    return jsonResponse({ sentence: final });
+    return jsonResponse({ sentence: final, loudnorm_applied });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     if (path) {

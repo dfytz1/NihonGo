@@ -44,7 +44,7 @@ Deno.serve(async (req) => {
   const modelOpt = model || undefined;
 
   try {
-    const mp3 = await synthesizeJapaneseMp3ForStorage(
+    const { mp3, loudnorm_applied } = await synthesizeJapaneseMp3ForStorage(
       SAMPLE_JP,
       voiceId,
       modelOpt,
@@ -55,6 +55,7 @@ Deno.serve(async (req) => {
         ...corsHeaders,
         "Content-Type": "audio/mpeg",
         "Cache-Control": "private, max-age=300",
+        "X-Audio-Loudnorm": loudnorm_applied ? "applied" : "skipped",
       },
     });
   } catch (e) {
