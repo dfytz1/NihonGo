@@ -9,13 +9,104 @@ import {
 
 /** @type {HTMLAudioElement | null} */
 let audioEl = null;
+/** Resolves the current `playClip` promise when the clip ends or is skipped. */
 let skipClipResolve = null;
+let mediaSessionHandlersWired = false;
+
+function ensureMediaSessionHandlers() {
+  if (mediaSessionHandlersWired || !("mediaSession" in navigator)) return;
+  mediaSessionHandlersWired = true;
+  try {
+    navigator.mediaSession.setActionHandler("play", () => {
+      if (audioEl?.paused) void audioEl.play();
+    });
+    navigator.mediaSession.setActionHandler("pause", () => {
+      audioEl?.pause();
+    });
+    navigator.mediaSession.setActionHandler("previoustrack", () => {
+      playerPrev();
+    });
+    navigator.mediaSession.setActionHandler("nexttrack", () => {
+      playerNext();
+    });
+    navigator.mediaSession.setActionHandler("stop", () => {
+      stopPlayer();
+    });
+  } catch {
+    /* Some platforms omit certain actions */
+  }
+}
+
+/** @param {{ title?: string; artist?: string; album?: string } | null | undefined} meta */
+function setMediaSessionMetadata(meta) {
+  if (!("mediaSession" in navigator)) return;
+  try {
+    if (!meta) {
+      navigator.mediaSession.playbackState = "none";
+      navigator.mediaSession.metadata = null;
+      return;
+    }
+    const title = (meta.title || "Nihon Sentences").slice(0, 200);
+    const artist = (meta.artist || "Nihon Sentences").slice(0, 200);
+    const album = (meta.album || "").slice(0, 200);
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title,
+      artist,
+      ...(album ? { album } : {}),
+    });
+    navigator.mediaSession.playbackState = "playing";
+  } catch {
+    /* */
+  }
+}
+
+export function clearMediaSessionPlayback() {
+  if (!("mediaSession" in navigator)) return;
+  try {
+    navigator.mediaSession.playbackState = "none";
+    navigator.mediaSession.metadata = null;
+  } catch {
+    /* */
+  }
+}
 
 function wireAudio() {
   if (!audioEl) {
     audioEl = new Audio();
     audioEl.preload = "auto";
+    audioEl.setAttribute("playsinline", "");
+    audioEl.setAttribute("webkit-playsinline", "true");
+    audioEl.addEventListener("play", () => {
+      if ("mediaSession" in navigator) {
+        try {
+          navigator.mediaSession.playbackState = "playing";
+        } catch {
+          /* */
+        }
+      }
+    });
+    audioEl.addEventListener("pause", () => {
+      if ("mediaSession" in navigator && audioEl && !audioEl.ended) {
+        try {
+          navigator.mediaSession.playbackState = "paused";
+        } catch {
+          /* */
+        }
+      }
+    });
   }
+  ensureMediaSessionHandlers();
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || !player.running || !audioEl) {
+      return;
+    }
+    if (audioEl.paused && !audioEl.ended && audioEl.src) {
+      void audioEl.play().catch(() => {});
+    }
+  });
 }
 
 function applyPlaybackRate(el, playbackRate) {
@@ -32,7 +123,12 @@ function applyPlaybackRate(el, playbackRate) {
   }
 }
 
-export function playClip(url, playbackRate) {
+/**
+ * @param {string} url
+ * @param {number} playbackRate
+ * @param {{ title?: string; artist?: string; album?: string } | null} [meta] Lock screen / system UI (Media Session)
+ */
+export function playClip(url, playbackRate, meta = null) {
   wireAudio();
   return new Promise((resolve) => {
     skipClipResolve = resolve;
@@ -43,6 +139,10 @@ export function playClip(url, playbackRate) {
       skipClipResolve = null;
       resolve();
     };
+
+    if (meta !== undefined) {
+      setMediaSessionMetadata(meta);
+    }
 
     a.onended = finish;
     a.onerror = finish;
@@ -82,6 +182,7 @@ export function stopPlayer() {
   player.running = false;
   player.seekDelta = 0;
   skipCurrentClip();
+  clearMediaSessionPlayback();
   const stEl = document.getElementById("player-status");
   if (stEl) stEl.textContent = "";
 }
@@ -105,6 +206,14 @@ function highlightPlaying(id) {
   card?.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
+function clipMetaForSentence(s) {
+  return {
+    title: s.japanese_text || s.kana || "—",
+    artist: "Nihon Sentences",
+    album: (s.russian_text || "").slice(0, 160),
+  };
+}
+
 export async function runPlayerLoop() {
   const stEl = document.getElementById("player-status");
 
@@ -115,6 +224,7 @@ export async function runPlayerLoop() {
         "Нет записей с сохранённым аудио в текущем фильтре.";
     }
     player.running = false;
+    clearMediaSessionPlayback();
     return;
   }
 
@@ -160,6 +270,8 @@ export async function runPlayerLoop() {
       continue;
     }
 
+    const meta = clipMetaForSentence(s);
+
     for (let r = 0; r < repeat && player.running; r++) {
       const path = pickRandomAudioPath(s);
       const url = path ? await getAudioUrl(path) : null;
@@ -172,7 +284,7 @@ export async function runPlayerLoop() {
             ? `Играет (${r + 1}/${repeat}, случайная дорожка)…`
             : "Играет (случайная дорожка)…";
       }
-      await playClip(url, speed);
+      await playClip(url, speed, meta);
       if (!player.running) break;
       if (player.seekDelta !== 0) break;
     }
@@ -195,6 +307,7 @@ export async function runPlayerLoop() {
   document.querySelectorAll(".sentence-card.is-playing").forEach((el) => {
     el.classList.remove("is-playing");
   });
+  clearMediaSessionPlayback();
 }
 
 export function startPlayer() {
@@ -216,5 +329,6 @@ export async function playSingle(id) {
     return;
   }
   const sp = Number(document.getElementById("pl-speed")?.value || 1);
-  await playClip(url, sp);
+  await playClip(url, sp, clipMetaForSentence(s));
+  clearMediaSessionPlayback();
 }
