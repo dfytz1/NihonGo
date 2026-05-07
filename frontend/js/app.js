@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/+esm";
 import {
   LS_OPENAI_MODEL,
   LS_ELEVEN_TTS_MODEL,
@@ -298,54 +298,6 @@ async function main() {
     showAuth();
   }
 
-  async function loginWithPin() {
-    const pin = document.getElementById("access-pin")?.value?.trim() ?? "";
-    const msg = document.getElementById("auth-msg");
-    const setAuthMsg = (t) => {
-      if (msg) msg.textContent = t;
-      else if (t) showToast(t);
-    };
-    if (pin.length < 4) {
-      setAuthMsg("Введите PIN (минимум 4 символа)");
-      return;
-    }
-    setAuthMsg("Проверка…");
-    try {
-      const r = await fetch(`${c.SUPABASE_URL}/functions/v1/verify_pin`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${c.SUPABASE_ANON_KEY}`,
-          apikey: c.SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({ access_pin: pin }),
-      });
-      const payload = await r.json().catch(() => ({}));
-      if (!r.ok || payload.ok !== true) {
-        setAuthMsg(
-          [payload.error, payload.detail]
-            .filter(Boolean)
-            .map((x) => (typeof x === "string" ? x : JSON.stringify(x)))
-            .join(" — ") || `Ошибка ${r.status}`,
-        );
-        return;
-      }
-      setAccessPin(pin);
-      setAuthMsg("");
-      const pinEl = document.getElementById("access-pin");
-      if (pinEl) pinEl.value = "";
-      showApp();
-      await loadSentences();
-    } catch (e) {
-      setAuthMsg(String(e.message || e));
-    }
-  }
-
-  document.getElementById("btn-pin-login")?.addEventListener("click", loginWithPin);
-  document.getElementById("access-pin")?.addEventListener("keydown", (ev) => {
-    if (ev.key === "Enter") loginWithPin();
-  });
-
   document.getElementById("btn-signout")?.addEventListener("click", () => {
     clearAccessPin();
     setSentences([]);
@@ -563,4 +515,9 @@ async function main() {
   }
 }
 
-main();
+main().catch((err) => {
+  const msg = document.getElementById("auth-msg");
+  const t = err instanceof Error ? err.message : String(err);
+  if (msg) msg.textContent = "Ошибка загрузки: " + t;
+  else console.error(err);
+});
