@@ -2,9 +2,8 @@
  * Classic (non-module) PIN login — runs even when `app.js` fails to load (CDN / iOS quirks).
  * Keep `__nihongoTabPin` in sync with `TAB_PIN_KEY` in `utils.js`.
  *
- * Do not toggle #app-shell visible here: if the module fails, users would see a dead UI (no listeners).
- * After verify, `__nihongoAfterPinOk(pin)` hands off to app.js in the same document so login works
- * even when `reload()` would not see storage (iOS / PWA). Reload is only a last-resort fallback.
+ * After verify we call `revealAppShell()` so the PIN screen hides immediately; `__nihongoAfterPinOk`
+ * in app.js loads data. (Verify usually happens after listeners are ready because typing takes time.)
  */
 (function () {
   var LS = "nihon_access_pin";
@@ -16,6 +15,11 @@
     var el = document.getElementById("auth-msg");
     if (el) el.textContent = text || "";
     else if (text) window.alert(text);
+  }
+
+  function revealAppShell() {
+    document.getElementById("auth-screen")?.classList.add("hidden");
+    document.getElementById("app-shell")?.classList.remove("hidden");
   }
 
   /** @returns {boolean} true if at least one persistence path likely worked */
@@ -181,6 +185,7 @@
       }
       setMsg("");
       if (input) input.value = "";
+      revealAppShell();
       handoffToApp(pin);
     } catch (e) {
       if (e && e.name === "AbortError") {
