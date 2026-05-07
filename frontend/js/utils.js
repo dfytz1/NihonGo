@@ -66,17 +66,57 @@ export function pickRandomAudioPath(s) {
   return paths[Math.floor(Math.random() * paths.length)];
 }
 
+function pinFromCookie() {
+  try {
+    const m = document.cookie.match(
+      new RegExp(
+        "(?:^|; )" +
+          LS_ACCESS_PIN.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
+          "=([^;]*)",
+      ),
+    );
+    if (!m?.[1]) return "";
+    return decodeURIComponent(m[1]).trim();
+  } catch {
+    return "";
+  }
+}
+
 export function getAccessPin() {
-  if (typeof localStorage === "undefined") return "";
-  let p = (localStorage.getItem(LS_ACCESS_PIN) || "").trim();
-  if (p) return p;
+  if (typeof localStorage !== "undefined") {
+    const p = (localStorage.getItem(LS_ACCESS_PIN) || "").trim();
+    if (p) return p;
+  }
   if (typeof sessionStorage !== "undefined") {
     const legacy = (sessionStorage.getItem(LS_ACCESS_PIN) || "").trim();
     if (legacy) {
-      localStorage.setItem(LS_ACCESS_PIN, legacy);
-      sessionStorage.removeItem(LS_ACCESS_PIN);
+      try {
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem(LS_ACCESS_PIN, legacy);
+        }
+      } catch {
+        /* keep using session-only */
+      }
       return legacy;
     }
+  }
+  const fromCookie = pinFromCookie();
+  if (fromCookie) {
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(LS_ACCESS_PIN, fromCookie);
+      }
+    } catch {
+      /* */
+    }
+    try {
+      if (typeof sessionStorage !== "undefined") {
+        sessionStorage.setItem(LS_ACCESS_PIN, fromCookie);
+      }
+    } catch {
+      /* */
+    }
+    return fromCookie;
   }
   return "";
 }
@@ -84,19 +124,46 @@ export function getAccessPin() {
 export function setAccessPin(pin) {
   const p = String(pin ?? "").trim();
   if (typeof localStorage !== "undefined") {
-    localStorage.setItem(LS_ACCESS_PIN, p);
+    try {
+      localStorage.setItem(LS_ACCESS_PIN, p);
+    } catch {
+      /* */
+    }
   }
   if (typeof sessionStorage !== "undefined") {
-    sessionStorage.removeItem(LS_ACCESS_PIN);
+    try {
+      sessionStorage.setItem(LS_ACCESS_PIN, p);
+    } catch {
+      /* */
+    }
+  }
+  try {
+    const maxAge = 60 * 60 * 24 * 400;
+    document.cookie = `${LS_ACCESS_PIN}=${encodeURIComponent(p)}; path=/; max-age=${maxAge}; SameSite=Lax`;
+  } catch {
+    /* */
   }
 }
 
 export function clearAccessPin() {
   if (typeof localStorage !== "undefined") {
-    localStorage.removeItem(LS_ACCESS_PIN);
+    try {
+      localStorage.removeItem(LS_ACCESS_PIN);
+    } catch {
+      /* */
+    }
   }
   if (typeof sessionStorage !== "undefined") {
-    sessionStorage.removeItem(LS_ACCESS_PIN);
+    try {
+      sessionStorage.removeItem(LS_ACCESS_PIN);
+    } catch {
+      /* */
+    }
+  }
+  try {
+    document.cookie = `${LS_ACCESS_PIN}=; path=/; max-age=0`;
+  } catch {
+    /* */
   }
 }
 

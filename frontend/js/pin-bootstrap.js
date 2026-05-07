@@ -11,6 +11,78 @@
     else if (text) window.alert(text);
   }
 
+  /** @returns {boolean} true if at least one persistence path likely worked */
+  function persistPin(pin) {
+    var ok = false;
+    if (typeof localStorage !== "undefined") {
+      try {
+        localStorage.setItem(LS, pin);
+        if (localStorage.getItem(LS) === pin) ok = true;
+      } catch (_e) {
+        /* */
+      }
+    }
+    if (typeof sessionStorage !== "undefined") {
+      try {
+        sessionStorage.setItem(LS, pin);
+        if (sessionStorage.getItem(LS) === pin) ok = true;
+      } catch (_e) {
+        /* */
+      }
+    }
+    try {
+      document.cookie =
+        LS +
+        "=" +
+        encodeURIComponent(pin) +
+        "; path=/; max-age=" +
+        60 * 60 * 24 * 400 +
+        "; SameSite=Lax";
+      ok = true;
+    } catch (_e) {
+      /* */
+    }
+    return ok;
+  }
+
+  /** @returns {string} trimmed pin if any store has a plausible value */
+  function readStoredPin() {
+    try {
+      var a = (localStorage.getItem(LS) || "").trim();
+      if (a.length >= 4) return a;
+    } catch (_e) {
+      /* */
+    }
+    try {
+      var b = (sessionStorage.getItem(LS) || "").trim();
+      if (b.length >= 4) return b;
+    } catch (_e) {
+      /* */
+    }
+    try {
+      var esc = LS.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      var m = document.cookie.match(
+        new RegExp("(?:^|; )" + esc + "=([^;]*)"),
+      );
+      if (m && m[1]) {
+        var c = decodeURIComponent(m[1]).trim();
+        if (c.length >= 4) return c;
+      }
+    } catch (_e) {
+      /* */
+    }
+    return "";
+  }
+
+  /** Show the main shell immediately when a PIN is already stored (before deferred app.js). */
+  function revealAppIfLoggedIn() {
+    if (!readStoredPin()) return;
+    var auth = document.getElementById("auth-screen");
+    var app = document.getElementById("app-shell");
+    if (auth) auth.classList.add("hidden");
+    if (app) app.classList.remove("hidden");
+  }
+
   async function submitPin() {
     var cfg = window.NIHONGO_CONFIG;
     if (!cfg || !cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
@@ -49,15 +121,15 @@
         setMsg(err);
         return;
       }
-      try {
-        localStorage.setItem(LS, pin);
-      } catch (e) {
-        setMsg("Не удалось сохранить PIN: " + (e && e.message));
+      if (!persistPin(pin)) {
+        setMsg("Не удалось сохранить PIN в этом браузере.");
         return;
       }
       setMsg("");
       if (input) input.value = "";
-      location.reload();
+      setTimeout(function () {
+        location.reload();
+      }, 100);
     } catch (e) {
       setMsg((e && e.message) || String(e));
     }
@@ -80,9 +152,14 @@
     }
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", wire);
-  } else {
+  function init() {
+    revealAppIfLoggedIn();
     wire();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
   }
 })();
