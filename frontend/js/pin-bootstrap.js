@@ -1,6 +1,9 @@
 /**
  * Classic (non-module) PIN login — runs even when `app.js` fails to load (CDN / iOS quirks).
  * Must match `LS_ACCESS_PIN` in state.js ("nihon_access_pin").
+ *
+ * Do not toggle #app-shell visible here: if the module fails, users would see a dead UI (no listeners).
+ * Multi-storage PIN persistence in utils + this script handles reload; app.js calls showApp() when ready.
  */
 (function () {
   var LS = "nihon_access_pin";
@@ -43,44 +46,6 @@
       /* */
     }
     return ok;
-  }
-
-  /** @returns {string} trimmed pin if any store has a plausible value */
-  function readStoredPin() {
-    try {
-      var a = (localStorage.getItem(LS) || "").trim();
-      if (a.length >= 4) return a;
-    } catch (_e) {
-      /* */
-    }
-    try {
-      var b = (sessionStorage.getItem(LS) || "").trim();
-      if (b.length >= 4) return b;
-    } catch (_e) {
-      /* */
-    }
-    try {
-      var esc = LS.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      var m = document.cookie.match(
-        new RegExp("(?:^|; )" + esc + "=([^;]*)"),
-      );
-      if (m && m[1]) {
-        var c = decodeURIComponent(m[1]).trim();
-        if (c.length >= 4) return c;
-      }
-    } catch (_e) {
-      /* */
-    }
-    return "";
-  }
-
-  /** Show the main shell immediately when a PIN is already stored (before deferred app.js). */
-  function revealAppIfLoggedIn() {
-    if (!readStoredPin()) return;
-    var auth = document.getElementById("auth-screen");
-    var app = document.getElementById("app-shell");
-    if (auth) auth.classList.add("hidden");
-    if (app) app.classList.remove("hidden");
   }
 
   async function submitPin() {
@@ -152,14 +117,9 @@
     }
   }
 
-  function init() {
-    revealAppIfLoggedIn();
-    wire();
-  }
-
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
+    document.addEventListener("DOMContentLoaded", wire);
   } else {
-    init();
+    wire();
   }
 })();

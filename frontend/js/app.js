@@ -516,8 +516,13 @@ async function main() {
 }
 
 main().catch((err) => {
-  const msg = document.getElementById("auth-msg");
   const t = err instanceof Error ? err.message : String(err);
+  console.error(err);
+  const msg = document.getElementById("auth-msg");
   if (msg) msg.textContent = "Ошибка загрузки: " + t;
-  else console.error(err);
+  const toast = document.getElementById("toast");
+  if (toast) {
+    toast.textContent = "Ошибка загрузки: " + t;
+    toast.classList.remove("hidden");
+  }
 });
