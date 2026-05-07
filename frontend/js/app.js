@@ -294,7 +294,6 @@ async function main() {
 
   if (getAccessPin()) {
     showApp();
-    await loadSentences();
   } else {
     showAuth();
   }
@@ -302,12 +301,15 @@ async function main() {
   async function loginWithPin() {
     const pin = document.getElementById("access-pin")?.value?.trim() ?? "";
     const msg = document.getElementById("auth-msg");
-    if (!msg) return;
+    const setAuthMsg = (t) => {
+      if (msg) msg.textContent = t;
+      else if (t) showToast(t);
+    };
     if (pin.length < 4) {
-      msg.textContent = "Введите PIN (минимум 4 символа)";
+      setAuthMsg("Введите PIN (минимум 4 символа)");
       return;
     }
-    msg.textContent = "Проверка…";
+    setAuthMsg("Проверка…");
     try {
       const r = await fetch(`${c.SUPABASE_URL}/functions/v1/verify_pin`, {
         method: "POST",
@@ -319,22 +321,23 @@ async function main() {
         body: JSON.stringify({ access_pin: pin }),
       });
       const payload = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        msg.textContent =
+      if (!r.ok || payload.ok !== true) {
+        setAuthMsg(
           [payload.error, payload.detail]
             .filter(Boolean)
             .map((x) => (typeof x === "string" ? x : JSON.stringify(x)))
-            .join(" — ") || `Ошибка ${r.status}`;
+            .join(" — ") || `Ошибка ${r.status}`,
+        );
         return;
       }
       setAccessPin(pin);
-      msg.textContent = "";
+      setAuthMsg("");
       const pinEl = document.getElementById("access-pin");
       if (pinEl) pinEl.value = "";
       showApp();
       await loadSentences();
     } catch (e) {
-      msg.textContent = String(e.message || e);
+      setAuthMsg(String(e.message || e));
     }
   }
 
@@ -554,6 +557,10 @@ async function main() {
       }
     },
   );
+
+  if (getAccessPin()) {
+    void loadSentences();
+  }
 }
 
 main();

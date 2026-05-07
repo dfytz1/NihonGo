@@ -2,7 +2,7 @@
  * Offline shell + audio cache. App JS is network-first. MP3 is also network-first
  * so replaced Storage objects (same URL) are not stuck behind an old Service Worker cache.
  */
-const CACHE_SHELL = "nihon-shell-v14";
+const CACHE_SHELL = "nihon-shell-v15";
 const CACHE_AUDIO = "nihon-audio-v2";
 const SHELL = ["./", "./index.html", "./css/styles.css", "./manifest.json"];
 
@@ -32,6 +32,9 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
 
   const url = new URL(req.url);
+  // Let the browser handle API / CDN / other origins — never substitute index.html.
+  if (url.origin !== self.location.origin) return;
+
   const path = url.pathname;
 
   // HTML navigations: network-first so deploys are not trapped behind an old cached shell.
