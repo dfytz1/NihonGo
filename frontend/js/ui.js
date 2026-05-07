@@ -27,8 +27,6 @@ import {
   parseTagsInput,
   showToast,
   sleep,
-  statusClass,
-  statusLabel,
 } from "./utils.js";
 
 let voicesCatalogPrimed = false;
@@ -141,9 +139,6 @@ export function renderList() {
       <p class="jp">${escapeHtml(s.japanese_text || "—")}</p>
       ${s.kana ? `<p class="kana">${escapeHtml(s.kana)}</p>` : ""}
       <div class="meta">
-        <span class="status-pill ${statusClass(s.status)}">${escapeHtml(
-          statusLabel(s.status),
-        )}</span>
         ${nTracks ? `<span class="tag-chip" title="Число озвучек">♪×${nTracks}</span>` : ""}
         <span>${formatDate(s.created_at)}</span>
         ${
@@ -152,11 +147,6 @@ export function renderList() {
             .join("")
         }
       </div>
-      ${
-        s.error_message
-          ? `<p class="quick-status err-detail" style="margin:0.45rem 0 0">${escapeHtml(s.error_message)}</p>`
-          : ""
-      }
       <div class="card-actions">
         <button type="button" class="btn btn-secondary btn-play-one" data-id="${s.id}" ${
           !canPlay ? "disabled" : ""
