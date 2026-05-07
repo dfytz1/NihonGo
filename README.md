@@ -29,7 +29,8 @@ NihonGoSentences/
 │       ├── regenerate_audio/
 │       └── batch_regenerate_audio/
 ├── scripts/
-│   └── normalize-audio-storage.mjs   # batch loudnorm for existing MP3s (needs ffmpeg)
+│   ├── normalize-audio-storage.mjs   # batch loudnorm for existing MP3s (needs ffmpeg)
+│   └── export-audio-to-disk.mjs      # download all referenced MP3s into one local folder
 └── README.md
 ```
 
@@ -103,6 +104,12 @@ There is **no** `INTERNAL_AUTH_*` or password grant. Rotating `ACCESS_PIN` inval
   export SUPABASE_SERVICE_ROLE_KEY=eyJ...   # service_role — never commit or expose
   DRY_RUN=1 npm run normalize-audio          # optional: print paths only
   npm run normalize-audio                    # overwrites objects in `sentence-audio` in place
+  ```
+
+- **Export MP3s to your computer** (flat folder `exported-audio/`, or set `EXPORT_DIR`):
+
+  ```bash
+  npm run export-audio
   ```
 
 - **Opt out**: Edge secret **`DISABLE_AUDIO_LOUDNORM=1`** forces raw ElevenLabs bytes (no loudnorm step).

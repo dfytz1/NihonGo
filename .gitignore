@@ -8,5 +8,5 @@ node_modules
 # Local Supabase client config (use config.example.js + Vercel env for deploy)
 frontend/js/config.js
 
-# Supabase CLI local state
-supabase/.temp/
+# Downloaded MP3 export (scripts/export-audio-to-disk.mjs)
+exported-audio/
