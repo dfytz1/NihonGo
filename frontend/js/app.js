@@ -288,6 +288,18 @@ async function main() {
   });
   setSupabase(client);
 
+  /** Same-page login handoff from `pin-bootstrap.js` (avoids reload when storage is flaky). */
+  globalThis.__nihongoAfterPinOk = (/** @type {unknown} */ pinArg) => {
+    const raw = pinArg != null ? String(pinArg).trim() : "";
+    if (raw.length >= 4) {
+      setAccessPin(raw);
+    }
+    if (!getAccessPin()) return false;
+    showApp();
+    void loadSentences();
+    return true;
+  };
+
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }

@@ -139,7 +139,11 @@ export function setAccessPin(pin) {
   }
   try {
     const maxAge = 60 * 60 * 24 * 400;
-    document.cookie = `${LS_ACCESS_PIN}=${encodeURIComponent(p)}; path=/; max-age=${maxAge}; SameSite=Lax`;
+    const sec =
+      typeof location !== "undefined" && location.protocol === "https:"
+        ? "; Secure"
+        : "";
+    document.cookie = `${LS_ACCESS_PIN}=${encodeURIComponent(p)}; path=/; max-age=${maxAge}; SameSite=Lax${sec}`;
   } catch {
     /* */
   }
@@ -161,7 +165,11 @@ export function clearAccessPin() {
     }
   }
   try {
-    document.cookie = `${LS_ACCESS_PIN}=; path=/; max-age=0`;
+    const sec =
+      typeof location !== "undefined" && location.protocol === "https:"
+        ? "; Secure"
+        : "";
+    document.cookie = `${LS_ACCESS_PIN}=; path=/; max-age=0${sec}`;
   } catch {
     /* */
   }

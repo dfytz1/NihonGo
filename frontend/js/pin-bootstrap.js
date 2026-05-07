@@ -3,7 +3,8 @@
  * Must match `LS_ACCESS_PIN` in state.js ("nihon_access_pin").
  *
  * Do not toggle #app-shell visible here: if the module fails, users would see a dead UI (no listeners).
- * Multi-storage PIN persistence in utils + this script handles reload; app.js calls showApp() when ready.
+ * After verify, `__nihongoAfterPinOk(pin)` hands off to app.js in the same document so login works
+ * even when `reload()` would not see storage (iOS / PWA). Reload is only a last-resort fallback.
  */
 (function () {
   var LS = "nihon_access_pin";
@@ -34,18 +35,47 @@
       }
     }
     try {
+      var sec =
+        typeof location !== "undefined" && location.protocol === "https:"
+          ? "; Secure"
+          : "";
       document.cookie =
         LS +
         "=" +
         encodeURIComponent(pin) +
         "; path=/; max-age=" +
         60 * 60 * 24 * 400 +
-        "; SameSite=Lax";
+        "; SameSite=Lax" +
+        sec;
       ok = true;
     } catch (_e) {
       /* */
     }
     return ok;
+  }
+
+  /** Prefer in-process handoff with verified PIN; avoid reload until app module is ready. */
+  function handoffToApp(verifiedPin) {
+    function run() {
+      if (typeof globalThis.__nihongoAfterPinOk !== "function") return false;
+      try {
+        return globalThis.__nihongoAfterPinOk(verifiedPin) === true;
+      } catch (e) {
+        setMsg((e && e.message) || String(e));
+        return true;
+      }
+    }
+    if (run()) return;
+    var n = 0;
+    var id = setInterval(function () {
+      n += 1;
+      if (run()) {
+        clearInterval(id);
+      } else if (n >= 40) {
+        clearInterval(id);
+        location.reload();
+      }
+    }, 50);
   }
 
   async function submitPin() {
@@ -92,9 +122,7 @@
       }
       setMsg("");
       if (input) input.value = "";
-      setTimeout(function () {
-        location.reload();
-      }, 100);
+      handoffToApp(pin);
     } catch (e) {
       setMsg((e && e.message) || String(e));
     }
