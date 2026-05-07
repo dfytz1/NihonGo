@@ -1,6 +1,6 @@
 /**
  * Classic (non-module) PIN login — runs even when `app.js` fails to load (CDN / iOS quirks).
- * Must match `LS_ACCESS_PIN` in state.js ("nihon_access_pin").
+ * Keep `__nihongoTabPin` in sync with `TAB_PIN_KEY` in `utils.js`.
  *
  * Do not toggle #app-shell visible here: if the module fails, users would see a dead UI (no listeners).
  * After verify, `__nihongoAfterPinOk(pin)` hands off to app.js in the same document so login works
@@ -71,7 +71,7 @@
       n += 1;
       if (run()) {
         clearInterval(id);
-      } else if (n >= 40) {
+      } else if (n >= 100) {
         clearInterval(id);
         location.reload();
       }
@@ -108,15 +108,38 @@
       } catch (_e) {
         /* */
       }
-      if (!r.ok || payload.ok !== true) {
+      if (!r.ok) {
+        var part0 = payload.error || payload.detail;
+        var err0 =
+          (typeof part0 === "string" && part0) ||
+          ("Ошибка " + r.status);
+        setMsg(err0);
+        return;
+      }
+      var okResp =
+        payload &&
+        (payload.ok === true ||
+          payload.ok === 1 ||
+          String(payload.ok).toLowerCase() === "true");
+      if (!okResp) {
         var part = payload.error || payload.detail;
         var err =
           (typeof part === "string" && part) ||
-          ("Ошибка " + r.status);
+          "Сервер не подтвердил вход. Обновите страницу.";
         setMsg(err);
         return;
       }
+      try {
+        globalThis.__nihongoTabPin = pin;
+      } catch (_e) {
+        /* */
+      }
       if (!persistPin(pin)) {
+        try {
+          delete globalThis.__nihongoTabPin;
+        } catch (_e) {
+          /* */
+        }
         setMsg("Не удалось сохранить PIN в этом браузере.");
         return;
       }

@@ -66,6 +66,9 @@ export function pickRandomAudioPath(s) {
   return paths[Math.floor(Math.random() * paths.length)];
 }
 
+/** Same-tab PIN (classic `pin-bootstrap.js` may set `globalThis[TAB_PIN_KEY]` before modules run). */
+const TAB_PIN_KEY = "__nihongoTabPin";
+
 function pinFromCookie() {
   try {
     const m = document.cookie.match(
@@ -83,6 +86,15 @@ function pinFromCookie() {
 }
 
 export function getAccessPin() {
+  try {
+    const g = globalThis[TAB_PIN_KEY];
+    if (typeof g === "string") {
+      const t = g.trim();
+      if (t.length >= 4) return t;
+    }
+  } catch {
+    /* */
+  }
   if (typeof localStorage !== "undefined") {
     const p = (localStorage.getItem(LS_ACCESS_PIN) || "").trim();
     if (p) return p;
@@ -123,6 +135,13 @@ export function getAccessPin() {
 
 export function setAccessPin(pin) {
   const p = String(pin ?? "").trim();
+  if (p.length >= 4) {
+    try {
+      globalThis[TAB_PIN_KEY] = p;
+    } catch {
+      /* */
+    }
+  }
   if (typeof localStorage !== "undefined") {
     try {
       localStorage.setItem(LS_ACCESS_PIN, p);
@@ -150,6 +169,11 @@ export function setAccessPin(pin) {
 }
 
 export function clearAccessPin() {
+  try {
+    delete globalThis[TAB_PIN_KEY];
+  } catch {
+    /* */
+  }
   if (typeof localStorage !== "undefined") {
     try {
       localStorage.removeItem(LS_ACCESS_PIN);

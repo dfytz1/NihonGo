@@ -279,6 +279,20 @@ async function main() {
   }
 
   const c = readCfg();
+
+  /** Register before `createClient` so PIN login can complete while imports finish. */
+  globalThis.__nihongoAfterPinOk = (/** @type {unknown} */ pinArg) => {
+    const raw = pinArg != null ? String(pinArg).trim() : "";
+    if (raw.length >= 4) {
+      setAccessPin(raw);
+    }
+    if (!getAccessPin()) return false;
+    showApp();
+    if (!supabase) return false;
+    void loadSentences();
+    return true;
+  };
+
   const client = createClient(c.SUPABASE_URL, c.SUPABASE_ANON_KEY, {
     auth: {
       persistSession: false,
@@ -287,18 +301,6 @@ async function main() {
     },
   });
   setSupabase(client);
-
-  /** Same-page login handoff from `pin-bootstrap.js` (avoids reload when storage is flaky). */
-  globalThis.__nihongoAfterPinOk = (/** @type {unknown} */ pinArg) => {
-    const raw = pinArg != null ? String(pinArg).trim() : "";
-    if (raw.length >= 4) {
-      setAccessPin(raw);
-    }
-    if (!getAccessPin()) return false;
-    showApp();
-    void loadSentences();
-    return true;
-  };
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").catch(() => {});
