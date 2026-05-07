@@ -2,7 +2,7 @@
  * Offline shell + audio cache. App JS is network-first. MP3 is also network-first
  * so replaced Storage objects (same URL) are not stuck behind an old Service Worker cache.
  */
-const CACHE_SHELL = "nihon-shell-v13";
+const CACHE_SHELL = "nihon-shell-v14";
 const CACHE_AUDIO = "nihon-audio-v2";
 const SHELL = ["./", "./index.html", "./css/styles.css", "./manifest.json"];
 
@@ -33,6 +33,24 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(req.url);
   const path = url.pathname;
+
+  // HTML navigations: network-first so deploys are not trapped behind an old cached shell.
+  if (req.mode === "navigate") {
+    event.respondWith(
+      fetch(req, { cache: "no-cache" })
+        .then((res) => {
+          const copy = res.clone();
+          if (res.ok) {
+            caches.open(CACHE_SHELL).then((c) => c.put(req, copy)).catch(() => {});
+          }
+          return res;
+        })
+        .catch(() =>
+          caches.match(req).then((h) => h || caches.match(new URL("./index.html", self.location.origin).href)),
+        ),
+    );
+    return;
+  }
 
   // Always try network first for app JS so PIN/config stay in sync with HTML after deploy.
   if (path.endsWith(".js") || path.includes("/js/")) {
@@ -74,15 +92,7 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     caches.match(req).then((hit) => {
       if (hit) return hit;
-      return fetch(req)
-        .then((res) => {
-          if (req.mode === "navigate" && res.ok) {
-            const copy = res.clone();
-            caches.open(CACHE_SHELL).then((c) => c.put(req, copy)).catch(() => {});
-          }
-          return res;
-        })
-        .catch(() => caches.match("./index.html"));
+      return fetch(req).catch(() => caches.match("./index.html"));
     }),
   );
 });
