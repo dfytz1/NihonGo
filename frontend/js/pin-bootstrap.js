@@ -8,6 +8,9 @@
  */
 (function () {
   var LS = "nihon_access_pin";
+  /** Guard double-submit; cold Edge Function can take 30s+ */
+  var pinSubmitting = false;
+  var VERIFY_TIMEOUT_MS = 60000;
 
   function setMsg(text) {
     var el = document.getElementById("auth-msg");
@@ -73,6 +76,9 @@
         clearInterval(id);
       } else if (n >= 100) {
         clearInterval(id);
+        setMsg(
+          "Скрипт приложения не ответил. Обновляем страницу… Если снова зависнет — откройте сайт в обычной вкладке Safari/Chrome.",
+        );
         location.reload();
       }
     }, 50);
@@ -84,16 +90,30 @@
       setMsg("Нет конфигурации (js/config.js).");
       return;
     }
+    if (pinSubmitting) return;
     var input = document.getElementById("access-pin");
     var pin = input && input.value ? String(input.value).trim() : "";
     if (pin.length < 4) {
       setMsg("Введите PIN (минимум 4 символа)");
       return;
     }
-    setMsg("Проверка…");
+    var btn = document.getElementById("btn-pin-login");
+    pinSubmitting = true;
+    if (btn) {
+      btn.disabled = true;
+      btn.dataset.prevLabel = btn.textContent || "";
+      btn.textContent = "Проверка…";
+    }
+    setMsg("Запрос к серверу… (первый вход может занять до минуты)");
+    var ac = new AbortController();
+    var to = setTimeout(function () {
+      ac.abort();
+    }, VERIFY_TIMEOUT_MS);
     try {
-      var r = await fetch(cfg.SUPABASE_URL + "/functions/v1/verify_pin", {
+      var base = String(cfg.SUPABASE_URL || "").replace(/\/+$/, "");
+      var r = await fetch(base + "/functions/v1/verify_pin", {
         method: "POST",
+        signal: ac.signal,
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer " + cfg.SUPABASE_ANON_KEY,
@@ -101,18 +121,32 @@
         },
         body: JSON.stringify({ access_pin: pin }),
       });
+      var rawText = "";
+      try {
+        rawText = await r.text();
+      } catch (readErr) {
+        setMsg(
+          "Не удалось прочитать ответ сервера: " +
+            ((readErr && readErr.message) || String(readErr)),
+        );
+        return;
+      }
       /** @type {Record<string, unknown>} */
       var payload = {};
-      try {
-        payload = /** @type {Record<string, unknown>} */ (await r.json());
-      } catch (_e) {
-        /* */
+      if (rawText && rawText.trim()) {
+        try {
+          payload = /** @type {Record<string, unknown>} */ (
+            JSON.parse(rawText)
+          );
+        } catch (_parse) {
+          payload = {};
+        }
       }
       if (!r.ok) {
         var part0 = payload.error || payload.detail;
         var err0 =
           (typeof part0 === "string" && part0) ||
-          ("Ошибка " + r.status);
+          ("Ошибка " + r.status + (rawText ? ": " + rawText.slice(0, 200) : ""));
         setMsg(err0);
         return;
       }
@@ -125,7 +159,9 @@
         var part = payload.error || payload.detail;
         var err =
           (typeof part === "string" && part) ||
-          "Сервер не подтвердил вход. Обновите страницу.";
+          "Сервер не подтвердил вход. Ответ: " +
+            (rawText ? rawText.slice(0, 280) : "(пусто)") +
+            ". Обновите страницу.";
         setMsg(err);
         return;
       }
@@ -137,7 +173,7 @@
       if (!persistPin(pin)) {
         try {
           delete globalThis.__nihongoTabPin;
-        } catch (_e) {
+        } catch (_e2) {
           /* */
         }
         setMsg("Не удалось сохранить PIN в этом браузере.");
@@ -147,7 +183,25 @@
       if (input) input.value = "";
       handoffToApp(pin);
     } catch (e) {
-      setMsg((e && e.message) || String(e));
+      if (e && e.name === "AbortError") {
+        setMsg(
+          "Таймаут: за " +
+            Math.round(VERIFY_TIMEOUT_MS / 1000) +
+            " с нет ответа от Supabase. Проверьте интернет, URL проекта и что функция verify_pin включена. Повторите попытку.",
+        );
+      } else {
+        setMsg((e && e.message) || String(e));
+      }
+    } finally {
+      clearTimeout(to);
+      pinSubmitting = false;
+      if (btn) {
+        btn.disabled = false;
+        if (btn.dataset.prevLabel != null) {
+          btn.textContent = btn.dataset.prevLabel;
+          delete btn.dataset.prevLabel;
+        }
+      }
     }
   }
 
