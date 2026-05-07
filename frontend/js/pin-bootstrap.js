@@ -2,8 +2,8 @@
  * Classic (non-module) PIN login — runs even when `app.js` fails to load (CDN / iOS quirks).
  * Keep `__nihongoTabPin` in sync with `TAB_PIN_KEY` in `utils.js`.
  *
- * After verify we call `revealAppShell()` so the PIN screen hides immediately; `__nihongoAfterPinOk`
- * in app.js loads data. (Verify usually happens after listeners are ready because typing takes time.)
+ * After verify, `handoffToApp` waits for `globalThis.__nihongoAppReady` so listeners exist before `showApp()`.
+ * Never reveal #app-shell early — that produced a clickable-looking but inert UI.
  */
 (function () {
   var LS = "nihon_access_pin";
@@ -15,11 +15,6 @@
     var el = document.getElementById("auth-msg");
     if (el) el.textContent = text || "";
     else if (text) window.alert(text);
-  }
-
-  function revealAppShell() {
-    document.getElementById("auth-screen")?.classList.add("hidden");
-    document.getElementById("app-shell")?.classList.remove("hidden");
   }
 
   /** @returns {boolean} true if at least one persistence path likely worked */
@@ -61,31 +56,37 @@
     return ok;
   }
 
-  /** Prefer in-process handoff with verified PIN; avoid reload until app module is ready. */
   function handoffToApp(verifiedPin) {
-    function run() {
-      if (typeof globalThis.__nihongoAfterPinOk !== "function") return false;
-      try {
-        return globalThis.__nihongoAfterPinOk(verifiedPin) === true;
-      } catch (e) {
-        setMsg((e && e.message) || String(e));
-        return true;
+    return new Promise(function (resolve) {
+      function run() {
+        if (typeof globalThis.__nihongoAfterPinOk !== "function") return false;
+        if (!globalThis.__nihongoAppReady) return false;
+        try {
+          return globalThis.__nihongoAfterPinOk(verifiedPin) === true;
+        } catch (e) {
+          setMsg((e && e.message) || String(e));
+          return true;
+        }
       }
-    }
-    if (run()) return;
-    var n = 0;
-    var id = setInterval(function () {
-      n += 1;
       if (run()) {
-        clearInterval(id);
-      } else if (n >= 100) {
-        clearInterval(id);
-        setMsg(
-          "Скрипт приложения не ответил. Обновляем страницу… Если снова зависнет — откройте сайт в обычной вкладке Safari/Chrome.",
-        );
-        location.reload();
+        resolve(true);
+        return;
       }
-    }, 50);
+      var n = 0;
+      var id = setInterval(function () {
+        n += 1;
+        if (run()) {
+          clearInterval(id);
+          resolve(true);
+        } else if (n >= 400) {
+          clearInterval(id);
+          setMsg(
+            "Интерфейс не загрузился за 20 с. Проверьте блокировщики и сеть; откройте консоль (F12). Обновите страницу вручную.",
+          );
+          resolve(false);
+        }
+      }, 50);
+    });
   }
 
   async function submitPin() {
@@ -183,10 +184,16 @@
         setMsg("Не удалось сохранить PIN в этом браузере.");
         return;
       }
-      setMsg("");
+      setMsg("Подключаем приложение…");
       if (input) input.value = "";
-      revealAppShell();
-      handoffToApp(pin);
+      var handoffOk = await handoffToApp(pin);
+      if (!handoffOk) {
+        try {
+          delete globalThis.__nihongoTabPin;
+        } catch (_cl) {
+          /* */
+        }
+      }
     } catch (e) {
       if (e && e.name === "AbortError") {
         setMsg(

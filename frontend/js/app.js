@@ -267,6 +267,7 @@ function setTab(tab) {
 }
 
 async function main() {
+  globalThis.__nihongoAppReady = false;
   initTheme();
 
   try {
@@ -289,8 +290,10 @@ async function main() {
   });
   setSupabase(client);
 
-  /** After `setSupabase` so the first handoff always sees a client (live import binding). */
+  /** After `setSupabase` so handoff always has a client. Clears PIN message on success. */
   globalThis.__nihongoAfterPinOk = (/** @type {unknown} */ pinArg) => {
+    const msgEl = document.getElementById("auth-msg");
+    if (msgEl) msgEl.textContent = "";
     const raw = pinArg != null ? String(pinArg).trim() : "";
     if (raw.length >= 4) {
       setAccessPin(raw);
@@ -523,12 +526,15 @@ async function main() {
     },
   );
 
+  globalThis.__nihongoAppReady = true;
+
   if (getAccessPin()) {
     void loadSentences();
   }
 }
 
 main().catch((err) => {
+  globalThis.__nihongoAppReady = false;
   const t = err instanceof Error ? err.message : String(err);
   console.error(err);
   const msg = document.getElementById("auth-msg");
