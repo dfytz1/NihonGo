@@ -3,20 +3,32 @@ import { requireAccessPin } from "../_shared/pin.ts";
 import {
   hasMultilingualFamilyModel,
   isRecommendedForJapanese,
+  verifiedLanguagesIncludeJapanese,
 } from "./japanese_rank.ts";
 
-const MAX_VOICES = 120;
+/** Small shortlist: Japanese-tagged / Japanese-metadata voices only (no “multilingual-only” tier). */
+const MAX_VOICES = 30;
 
 type VoiceOut = {
   voice_id: string;
   name: string;
-  /** Verified Japanese / explicit JP metadata from ElevenLabs. */
   good_for_japanese: boolean;
-  /** Multilingual or v2.5–family HQ model IDs — usually works with eleven_multilingual_* for JP. */
   multilingual_eligible: boolean;
 };
 
-/** Lists ElevenLabs voices for checkbox UI (PIN-gated). */
+async function fetchVoicesList(key: string): Promise<Record<string, unknown>[]> {
+  const r = await fetch("https://api.elevenlabs.io/v1/voices", {
+    headers: { "xi-api-key": key },
+  });
+  if (!r.ok) {
+    const t = (await r.text()).slice(0, 300);
+    throw new Error(`ElevenLabs ${r.status}: ${t}`);
+  }
+  const body = await r.json() as { voices?: Record<string, unknown>[] };
+  return body.voices ?? [];
+}
+
+/** Lists up to `MAX_VOICES` ElevenLabs voices that are flagged or labeled for Japanese. */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -42,48 +54,37 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "ELEVENLABS_API_KEY is not set" }, 500);
   }
 
-  const r = await fetch("https://api.elevenlabs.io/v1/voices", {
-    headers: { "xi-api-key": key },
+  let rawVoices: Record<string, unknown>[];
+  try {
+    rawVoices = await fetchVoicesList(key);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return jsonResponse({ error: msg }, 502);
+  }
+
+  const jpCandidates = rawVoices.filter((rv) => isRecommendedForJapanese(rv));
+
+  jpCandidates.sort((a, b) => {
+    const va = verifiedLanguagesIncludeJapanese(a) ? 0 : 1;
+    const vb = verifiedLanguagesIncludeJapanese(b) ? 0 : 1;
+    if (va !== vb) return va - vb;
+    const na = String(a.name ?? a.voice_id ?? "");
+    const nb = String(b.name ?? b.voice_id ?? "");
+    return na.localeCompare(nb, "ru");
   });
 
-  if (!r.ok) {
-    const t = (await r.text()).slice(0, 300);
-    return jsonResponse({ error: `ElevenLabs ${r.status}`, detail: t }, 502);
-  }
+  const pickedRaw = jpCandidates.slice(0, MAX_VOICES);
 
-  let body: { voices?: Record<string, unknown>[] };
-  try {
-    body = await r.json() as typeof body;
-  } catch {
-    return jsonResponse({ error: "Bad voices JSON" }, 502);
-  }
-
-  const rawVoices = body.voices ?? [];
-  const voices: VoiceOut[] = [];
-
-  for (const rv of rawVoices) {
+  const voices: VoiceOut[] = pickedRaw.map((rv) => {
     const voice_id = String(rv.voice_id ?? "");
-    if (!voice_id) continue;
     const name = String(rv.name ?? voice_id);
-    const good = isRecommendedForJapanese(rv);
-    const mult = hasMultilingualFamilyModel(rv);
-    voices.push({
+    return {
       voice_id,
       name,
-      good_for_japanese: good,
-      multilingual_eligible: mult,
-    });
-  }
-
-  voices.sort((a, b) => {
-    if (a.good_for_japanese !== b.good_for_japanese) {
-      return a.good_for_japanese ? -1 : 1;
-    }
-    if (a.multilingual_eligible !== b.multilingual_eligible) {
-      return a.multilingual_eligible ? -1 : 1;
-    }
-    return a.name.localeCompare(b.name, "ru");
+      good_for_japanese: isRecommendedForJapanese(rv),
+      multilingual_eligible: hasMultilingualFamilyModel(rv),
+    };
   });
 
-  return jsonResponse({ voices: voices.slice(0, MAX_VOICES) });
+  return jsonResponse({ voices });
 });

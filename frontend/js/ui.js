@@ -29,18 +29,9 @@ import {
   sleep,
   statusClass,
   statusLabel,
-  LOUDNORM_HINT_RU,
 } from "./utils.js";
 
 let voicesCatalogPrimed = false;
-
-function toastAfterRegen(payload, okLabel) {
-  if (payload?.loudnorm_applied === false) {
-    showToast(`${okLabel}. ${LOUDNORM_HINT_RU}`);
-  } else {
-    showToast(okLabel);
-  }
-}
 
 export function refreshTagFilterOptions() {
   const sel = document.getElementById("filter-tag");
@@ -213,9 +204,9 @@ export function renderList() {
       if (!id) return;
       try {
         showToast("Генерация аудио…");
-        const payload = await invokeRegen(id);
+        await invokeRegen(id);
         await loadSentences();
-        toastAfterRegen(payload, "Готово");
+        showToast("Готово");
       } catch (e) {
         showToast(String(e.message || e));
         await loadSentences();
@@ -228,9 +219,9 @@ export function renderList() {
       if (!id) return;
       try {
         showToast("Новая дорожка…");
-        const payload = await invokeRegen(id);
+        await invokeRegen(id);
         await loadSentences();
-        toastAfterRegen(payload, "Готово");
+        showToast("Готово");
       } catch (e) {
         showToast(String(e.message || e));
         await loadSentences();
@@ -524,9 +515,9 @@ export function openEdit(id) {
     btnSave.click();
     try {
       showToast("Генерация аудио…");
-      const payload = await invokeRegen(id);
+      await invokeRegen(id);
       await loadSentences();
-      toastAfterRegen(payload, "Аудио обновлено");
+      showToast("Аудио обновлено");
     } catch (e) {
       showToast(String(e.message || e));
       await loadSentences();
@@ -577,7 +568,17 @@ export async function quickAdd() {
       return;
     }
 
-    if (payload.success === false && payload.error === "translation") {
+    const s = payload.sentence;
+    const looksDone =
+      s &&
+      (s.status === "ready" ||
+        (((s.japanese_text ?? "") + "").trim() &&
+          (((Array.isArray(s.audio_tracks) && s.audio_tracks.length) ||
+            (s.audio_path ?? "").toString().trim()))));
+
+    if (looksDone) {
+      st.textContent = "Сохранено";
+    } else if (payload.success === false && payload.error === "translation") {
       st.textContent = "Ошибка перевода (запись сохранена)";
     } else if (payload.warning) {
       const det = payload.sentence?.error_message;
@@ -585,10 +586,7 @@ export async function quickAdd() {
         ? `${payload.warning}\n${det}`
         : payload.warning;
     } else {
-      st.textContent =
-        payload.loudnorm_applied === false
-          ? `Сохранено. ${LOUDNORM_HINT_RU}`
-          : "Сохранено";
+      st.textContent = "Сохранено";
     }
 
     ta.value = "";

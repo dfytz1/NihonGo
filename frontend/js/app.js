@@ -1,4 +1,4 @@
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/+esm";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import {
   LS_OPENAI_MODEL,
   LS_ELEVEN_TTS_MODEL,
@@ -30,7 +30,6 @@ import {
   getAccessPin,
   setAccessPin,
   edgeFetch,
-  LOUDNORM_HINT_RU,
 } from "./utils.js";
 import {
   bulkImport,
@@ -212,33 +211,18 @@ async function loadVoicesIntoSettings() {
     setVoiceCatalog(voices);
     const saved = new Set(getSelectedVoiceIds());
     host.innerHTML = "";
-    let lastTier = -1;
-    let sectionIndex = 0;
+    const h = document.createElement("p");
+    h.className = "label";
+    h.style.marginTop = "0";
+    h.textContent = "Голоса для японского (до 30 из каталога ElevenLabs)";
+    host.appendChild(h);
     for (const v of voices) {
-      const tier = v.good_for_japanese
-        ? 0
-        : v.multilingual_eligible
-          ? 1
-          : 2;
-      if (tier !== lastTier) {
-        lastTier = tier;
-        const h = document.createElement("p");
-        h.className = "label";
-        h.style.marginTop = sectionIndex++ === 0 ? "0" : "0.85rem";
-        h.textContent =
-          tier === 0
-            ? "Рекомендуемы для японского"
-            : tier === 1
-              ? "Мультиязычные (часто подходят для японского)"
-              : "Остальные голоса";
-        host.appendChild(h);
-      }
       appendVoiceSettingRow(host, v, saved);
     }
     if (st) {
       st.textContent = voices.length
-        ? `Отметьте голоса (в списке до ${voices.length}).`
-        : "Нет голосов в ответе API";
+        ? `Отметьте голоса для случайного выбора (${voices.length} в списке).`
+        : "В каталоге ElevenLabs не найдено голосов с меткой японского для вашего ключа — проверьте библиотеку голосов на elevenlabs.io";
     }
   } catch (e) {
     if (st) st.textContent = String(e.message || e);
@@ -267,7 +251,6 @@ function setTab(tab) {
 }
 
 async function main() {
-  globalThis.__nihongoAppReady = false;
   initTheme();
 
   try {
@@ -280,7 +263,6 @@ async function main() {
   }
 
   const c = readCfg();
-
   const client = createClient(c.SUPABASE_URL, c.SUPABASE_ANON_KEY, {
     auth: {
       persistSession: false,
@@ -290,29 +272,60 @@ async function main() {
   });
   setSupabase(client);
 
-  /** After `setSupabase` so handoff always has a client. Clears PIN message on success. */
-  globalThis.__nihongoAfterPinOk = (/** @type {unknown} */ pinArg) => {
-    const msgEl = document.getElementById("auth-msg");
-    if (msgEl) msgEl.textContent = "";
-    const raw = pinArg != null ? String(pinArg).trim() : "";
-    if (raw.length >= 4) {
-      setAccessPin(raw);
-    }
-    if (!getAccessPin()) return false;
-    showApp();
-    void loadSentences();
-    return true;
-  };
-
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
 
   if (getAccessPin()) {
     showApp();
+    await loadSentences();
   } else {
     showAuth();
   }
+
+  async function loginWithPin() {
+    const pin = document.getElementById("access-pin")?.value?.trim() ?? "";
+    const msg = document.getElementById("auth-msg");
+    if (!msg) return;
+    if (pin.length < 4) {
+      msg.textContent = "Введите PIN (минимум 4 символа)";
+      return;
+    }
+    msg.textContent = "Проверка…";
+    try {
+      const r = await fetch(`${c.SUPABASE_URL}/functions/v1/verify_pin`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${c.SUPABASE_ANON_KEY}`,
+          apikey: c.SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ access_pin: pin }),
+      });
+      const payload = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        msg.textContent =
+          [payload.error, payload.detail]
+            .filter(Boolean)
+            .map((x) => (typeof x === "string" ? x : JSON.stringify(x)))
+            .join(" — ") || `Ошибка ${r.status}`;
+        return;
+      }
+      setAccessPin(pin);
+      msg.textContent = "";
+      const pinEl = document.getElementById("access-pin");
+      if (pinEl) pinEl.value = "";
+      showApp();
+      await loadSentences();
+    } catch (e) {
+      msg.textContent = String(e.message || e);
+    }
+  }
+
+  document.getElementById("btn-pin-login")?.addEventListener("click", loginWithPin);
+  document.getElementById("access-pin")?.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") loginWithPin();
+  });
 
   document.getElementById("btn-signout")?.addEventListener("click", () => {
     clearAccessPin();
@@ -366,12 +379,8 @@ async function main() {
       }
       showToast("Пакетная озвучка…");
       try {
-        const batchPayload = await invokeBatchRegen(ids);
-        if (batchPayload?.loudnorm_skipped_any) {
-          showToast(`Готово. ${LOUDNORM_HINT_RU}`);
-        } else {
-          showToast("Готово");
-        }
+        await invokeBatchRegen(ids);
+        showToast("Готово");
         await loadSentences();
       } catch (e) {
         showToast(String(e.message || e));
@@ -525,23 +534,6 @@ async function main() {
       }
     },
   );
-
-  globalThis.__nihongoAppReady = true;
-
-  if (getAccessPin()) {
-    void loadSentences();
-  }
 }
 
-main().catch((err) => {
-  globalThis.__nihongoAppReady = false;
-  const t = err instanceof Error ? err.message : String(err);
-  console.error(err);
-  const msg = document.getElementById("auth-msg");
-  if (msg) msg.textContent = "Ошибка загрузки: " + t;
-  const toast = document.getElementById("toast");
-  if (toast) {
-    toast.textContent = "Ошибка загрузки: " + t;
-    toast.classList.remove("hidden");
-  }
-});
+main();

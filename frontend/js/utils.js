@@ -66,136 +66,37 @@ export function pickRandomAudioPath(s) {
   return paths[Math.floor(Math.random() * paths.length)];
 }
 
-/** Same-tab PIN (classic `pin-bootstrap.js` may set `globalThis[TAB_PIN_KEY]` before modules run). */
-const TAB_PIN_KEY = "__nihongoTabPin";
-
-function pinFromCookie() {
-  try {
-    const m = document.cookie.match(
-      new RegExp(
-        "(?:^|; )" +
-          LS_ACCESS_PIN.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
-          "=([^;]*)",
-      ),
-    );
-    if (!m?.[1]) return "";
-    return decodeURIComponent(m[1]).trim();
-  } catch {
-    return "";
-  }
-}
-
 export function getAccessPin() {
-  try {
-    const g = globalThis[TAB_PIN_KEY];
-    if (typeof g === "string") {
-      const t = g.trim();
-      if (t.length >= 4) return t;
-    }
-  } catch {
-    /* */
-  }
-  if (typeof localStorage !== "undefined") {
-    const p = (localStorage.getItem(LS_ACCESS_PIN) || "").trim();
-    if (p) return p;
-  }
+  if (typeof localStorage === "undefined") return "";
+  let p = (localStorage.getItem(LS_ACCESS_PIN) || "").trim();
+  if (p) return p;
   if (typeof sessionStorage !== "undefined") {
     const legacy = (sessionStorage.getItem(LS_ACCESS_PIN) || "").trim();
     if (legacy) {
-      try {
-        if (typeof localStorage !== "undefined") {
-          localStorage.setItem(LS_ACCESS_PIN, legacy);
-        }
-      } catch {
-        /* keep using session-only */
-      }
+      localStorage.setItem(LS_ACCESS_PIN, legacy);
+      sessionStorage.removeItem(LS_ACCESS_PIN);
       return legacy;
     }
-  }
-  const fromCookie = pinFromCookie();
-  if (fromCookie) {
-    try {
-      if (typeof localStorage !== "undefined") {
-        localStorage.setItem(LS_ACCESS_PIN, fromCookie);
-      }
-    } catch {
-      /* */
-    }
-    try {
-      if (typeof sessionStorage !== "undefined") {
-        sessionStorage.setItem(LS_ACCESS_PIN, fromCookie);
-      }
-    } catch {
-      /* */
-    }
-    return fromCookie;
   }
   return "";
 }
 
 export function setAccessPin(pin) {
   const p = String(pin ?? "").trim();
-  if (p.length >= 4) {
-    try {
-      globalThis[TAB_PIN_KEY] = p;
-    } catch {
-      /* */
-    }
-  }
   if (typeof localStorage !== "undefined") {
-    try {
-      localStorage.setItem(LS_ACCESS_PIN, p);
-    } catch {
-      /* */
-    }
+    localStorage.setItem(LS_ACCESS_PIN, p);
   }
   if (typeof sessionStorage !== "undefined") {
-    try {
-      sessionStorage.setItem(LS_ACCESS_PIN, p);
-    } catch {
-      /* */
-    }
-  }
-  try {
-    const maxAge = 60 * 60 * 24 * 400;
-    const sec =
-      typeof location !== "undefined" && location.protocol === "https:"
-        ? "; Secure"
-        : "";
-    document.cookie = `${LS_ACCESS_PIN}=${encodeURIComponent(p)}; path=/; max-age=${maxAge}; SameSite=Lax${sec}`;
-  } catch {
-    /* */
+    sessionStorage.removeItem(LS_ACCESS_PIN);
   }
 }
 
 export function clearAccessPin() {
-  try {
-    delete globalThis[TAB_PIN_KEY];
-  } catch {
-    /* */
-  }
   if (typeof localStorage !== "undefined") {
-    try {
-      localStorage.removeItem(LS_ACCESS_PIN);
-    } catch {
-      /* */
-    }
+    localStorage.removeItem(LS_ACCESS_PIN);
   }
   if (typeof sessionStorage !== "undefined") {
-    try {
-      sessionStorage.removeItem(LS_ACCESS_PIN);
-    } catch {
-      /* */
-    }
-  }
-  try {
-    const sec =
-      typeof location !== "undefined" && location.protocol === "https:"
-        ? "; Secure"
-        : "";
-    document.cookie = `${LS_ACCESS_PIN}=; path=/; max-age=0${sec}`;
-  } catch {
-    /* */
+    sessionStorage.removeItem(LS_ACCESS_PIN);
   }
 }
 
@@ -220,10 +121,6 @@ export function showToast(msg) {
   clearTimeout(getToastTimer());
   setToastTimer(setTimeout(() => t.classList.add("hidden"), 3200));
 }
-
-/** Hosted Supabase Edge usually has no ffmpeg — new clips stay quiet until `npm run normalize-audio`. */
-export const LOUDNORM_HINT_RU =
-  "Громкость не выровнена на сервере. На компьютере, в папке проекта: npm run normalize-audio";
 
 export function setTheme(dark) {
   document.documentElement.setAttribute(
