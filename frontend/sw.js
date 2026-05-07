@@ -2,7 +2,7 @@
  * Offline shell + audio cache. App JS is network-first. MP3 is also network-first
  * so replaced Storage objects (same URL) are not stuck behind an old Service Worker cache.
  */
-const CACHE_SHELL = "nihon-shell-v23";
+const CACHE_SHELL = "nihon-shell-v24";
 const CACHE_AUDIO = "nihon-audio-v2";
 const SHELL = ["./", "./index.html", "./css/styles.css", "./manifest.json", "./js/pin-bootstrap.js"];
 

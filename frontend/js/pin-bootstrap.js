@@ -58,34 +58,52 @@
 
   function handoffToApp(verifiedPin) {
     return new Promise(function (resolve) {
-      function run() {
-        if (typeof globalThis.__nihongoAfterPinOk !== "function") return false;
-        if (!globalThis.__nihongoAppReady) return false;
-        try {
-          return globalThis.__nihongoAfterPinOk(verifiedPin) === true;
-        } catch (e) {
-          setMsg((e && e.message) || String(e));
-          return true;
-        }
-      }
-      if (run()) {
-        resolve(true);
-        return;
-      }
-      var n = 0;
-      var id = setInterval(function () {
-        n += 1;
-        if (run()) {
-          clearInterval(id);
-          resolve(true);
-        } else if (n >= 400) {
-          clearInterval(id);
+      var deadline = Date.now() + 120000;
+      var lastHint = 0;
+      function tick() {
+        var now = Date.now();
+        if (now > deadline) {
+          var modMissing = typeof globalThis.__nihongoAfterPinOk !== "function";
+          var notReady = !globalThis.__nihongoAppReady;
+          var hint = modMissing
+            ? "Не загрузился скрипт приложения или библиотека Supabase с CDN (jsDelivr). Проверьте сеть, VPN, блокировщик, режим экономии трафика."
+            : notReady
+              ? "Скрипт загрузился, но инициализация не завершилась (ошибка в консоли). "
+              : "Вход не удалось завершить. ";
           setMsg(
-            "Интерфейс не загрузился за 20 с. Проверьте блокировщики и сеть; откройте консоль (F12). Обновите страницу вручную.",
+            hint +
+              "Подождите 1–2 минуты после открытия страницы и попробуйте снова, либо откройте сайт в другом браузере.",
           );
           resolve(false);
+          return;
         }
-      }, 50);
+        if (now - lastHint > 12000) {
+          lastHint = now;
+          if (typeof globalThis.__nihongoAfterPinOk !== "function") {
+            setMsg(
+              "Загружаем приложение с сети… На медленном интернете или при блокировке CDN это может занять до минуты.",
+            );
+          } else if (!globalThis.__nihongoAppReady) {
+            setMsg("Запускаем интерфейс…");
+          }
+        }
+        function run() {
+          if (typeof globalThis.__nihongoAfterPinOk !== "function") return false;
+          if (!globalThis.__nihongoAppReady) return false;
+          try {
+            return globalThis.__nihongoAfterPinOk(verifiedPin) === true;
+          } catch (e) {
+            setMsg((e && e.message) || String(e));
+            return true;
+          }
+        }
+        if (run()) {
+          resolve(true);
+          return;
+        }
+        setTimeout(tick, 80);
+      }
+      tick();
     });
   }
 
