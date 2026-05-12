@@ -10,3 +10,6 @@ frontend/js/config.js
 
 # Downloaded MP3 export (scripts/export-audio-to-disk.mjs)
 exported-audio/
+
+# Local secrets for Normalize-Audio.command / manual normalize runs
+scripts/.env.normalize
